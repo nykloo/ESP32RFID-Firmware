@@ -6,6 +6,7 @@
 #include <WiFiUdp.h>
 const char *udpAddress = "255.255.255.255";
 const int udpPort = 48899;
+const char* MAGIC_HOME_TAG = "MAGICHOME";
 const uint16_t tcpPort = 5577;
 char incomingPacket[256];
 WiFiUDP udp;
@@ -18,11 +19,11 @@ std::vector<Light> FindLights()
 {
   // only send data when connected
   std::vector<Light> foundLights = {};
-  Serial.println("Find Lights");
+  ESP_LOGI(MAGIC_HOME_TAG,"Find Lights");
 
   //if (connected)
   //{
-    Serial.println("sends udp discovery packet");
+    ESP_LOGI(MAGIC_HOME_TAG,"sends udp discovery packet");
 
     // Send a packet
     udp.beginPacket(udpAddress, udpPort);
@@ -35,18 +36,18 @@ std::vector<Light> FindLights()
       int packetSize = udp.parsePacket();
       if (packetSize)
       {
-        Serial.printf("Received %d bytes from %s, port %d\n", packetSize, udp.remoteIP().toString().c_str(), udp.remotePort());
+        ESP_LOGI(MAGIC_HOME_TAG,"Received %d bytes from %s, port %d\n", packetSize, udp.remoteIP().toString().c_str(), udp.remotePort());
         int len = udp.read(incomingPacket, 255);
         if (len > 0)
         {
           incomingPacket[len] = '\0';
         }
-        Serial.printf("UDP packet contents: %s\n", incomingPacket);
+        ESP_LOGI(MAGIC_HOME_TAG,"UDP packet contents: %s\n", incomingPacket);
         std::string data = std::string(incomingPacket);
         int commaIndex = data.find(',');
         std::string ip = data.substr(0, commaIndex);
         foundLights.push_back(Light(ip));
-        Serial.println(ip.c_str());
+        ESP_LOGI(MAGIC_HOME_TAG,"%s",ip.c_str());
       }
       delay(10);
     }
@@ -58,11 +59,11 @@ std::vector<Light> MagicHome::DiscoveredLights(){
 }
 void MagicHome::DiscoverLights()
 {
-      Serial.println("Searching for Lights");
+      ESP_LOGI(MAGIC_HOME_TAG,"Searching for Lights");
   for (size_t i = 0; i < 5; i++)
   {
     std::vector<Light> newLights = FindLights();
-    Serial.printf("found %d lights\n", newLights.size());
+    ESP_LOGI(MAGIC_HOME_TAG,"found %d lights\n", newLights.size());
     for (auto &&newlight : newLights)
     {
       bool contains = false;
@@ -81,6 +82,6 @@ void MagicHome::DiscoverLights()
 
     delay(100);
   }
-  Serial.printf("lights now contains %d lights\n", lights.size());
-  Serial.println("Searching for Done");
+  ESP_LOGI(MAGIC_HOME_TAG,"lights now contains %d lights\n", lights.size());
+  ESP_LOGI(MAGIC_HOME_TAG,"Searching for Done");
 }

@@ -4,15 +4,19 @@
 #include <WiFiUdp.h>
 #include <ArduinoOTA.h>
 #include <MagicHome.h>
-
+#include <Rfid.h>
 const char *ssid = "Kyber Nexus";
 const char *password = "123456789";
 const char *TAG = "MAIN";
-const int lightDiscovreyInterval = 60 * 1000;
+const int lightDiscovreyInterval = 120 * 1000;
 int lastDiscovery = 0;
-
+volatile bool ledDiscoveryNeeded=false;
 MagicHome LightsController;
-
+Rfid Rfid;
+void deviceConnected(WiFiEvent_t event, WiFiEventInfo_t info)
+{
+    ledDiscoveryNeeded=true;
+}
 void startOTA()
 {
   // upload with
@@ -56,14 +60,14 @@ void startOTA()
       else if (error == OTA_RECEIVE_ERROR) ESP_LOGI(TAG,"Receive Failed");
       else if (error == OTA_END_ERROR) ESP_LOGI(TAG,"End Failed"); });
   ArduinoOTA.begin();
+  
+
 }
 void updateLightsById(uint32_t id)
 {
 
   for (auto &light : LightsController.DiscoveredLights())
   {
-    ESP_LOGI(TAG, "updating light at %s", light.GetIpAddress());
-
     if (id == 0x00000C00) // white ashoka
     {
       light.SetColor(255, 255, 255);
@@ -153,8 +157,9 @@ void updateLightsById(uint32_t id)
 
 void handleLightDiscovery()
 {
-  if (lastDiscovery + lightDiscovreyInterval > millis())
+  if (millis()>lastDiscovery + lightDiscovreyInterval)
   {
+    ESP_LOGI(TAG,"%i,%i",lastDiscovery+lightDiscovreyInterval,millis());
     LightsController.DiscoverLights();
     lastDiscovery = millis();
   }
@@ -172,7 +177,10 @@ void setup()
     startOTA();
     LightsController.Init();
     delay(10000);
+    WiFi.onEvent(deviceConnected,ARDUINO_EVENT_WIFI_AP_STAIPASSIGNED);
     LightsController.DiscoverLights();
+
+  LightsController.DiscoverLights();
   }
   else
   {
@@ -180,17 +188,28 @@ void setup()
     delay(5000);
     ESP.restart();
   }
+      Rfid.Init();
+  delay(100);
+  Rfid.Enable();
 }
-
+uint32_t lastTag = 0;
 void loop()
 {
   ArduinoOTA.handle();
-  handleLightDiscovery();
-  for (auto &light : LightsController.DiscoveredLights())
+  if(ledDiscoveryNeeded){
+  LightsController.DiscoverLights();
+  ledDiscoveryNeeded=false;
+  }
+
+  uint32_t tag = Rfid.ReadTag();
+
+  if (tag != -1)
   {
-    light.SetColor(0, 0, 0);
-    delay(10 * 1000);
-    light.SetColor(255, 0, 0);
-    delay(10 * 1000);
+    Serial.println(tag, HEX);
+    if (tag != lastTag)
+    {
+      lastTag = tag;
+      updateLightsById(tag);
+    }
   }
 }
