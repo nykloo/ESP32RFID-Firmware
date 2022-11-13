@@ -5,6 +5,9 @@
 #include <ArduinoOTA.h>
 #include <MagicHome.h>
 #include <Rfid.h>
+#include <Adafruit_NeoPixel.h>
+#define LED_PIN 14
+#define LED_COUNT 3
 const char *ssid = "Kyber Nexus";
 const char *password = "123456789";
 const char *TAG = "MAIN";
@@ -12,6 +15,14 @@ const int lightDiscovreyInterval = 120 * 1000;
 int lastDiscovery = 0;
 volatile bool ledDiscoveryNeeded=false;
 MagicHome LightsController;
+Adafruit_NeoPixel pixels = Adafruit_NeoPixel(LED_COUNT, LED_PIN, NEO_GRB + NEO_KHZ800);
+void setColor(byte r,byte g, byte b){
+  for(int i=0; i<LED_COUNT;i++){
+  pixels.setPixelColor(i, pixels.Color(r, g, b));
+  }
+    pixels.show();
+
+}
 Rfid Rfid;
 void deviceConnected(WiFiEvent_t event, WiFiEventInfo_t info)
 {
@@ -71,86 +82,124 @@ void updateLightsById(uint32_t id)
     if (id == 0x00000C00) // white ashoka
     {
       light.SetColor(255, 255, 255);
+      setColor(255,255,255);
     }
     if (id == 0x00000C01) // white
     {
       light.SetColor(255, 0, 0);
+      setColor(255,0,0);
     }
     if (id == 0x00000C02) // green
     {
       light.SetColor(255, 255, 0);
+      setColor(255,255,0);
+
     }
     if (id == 0x00000C03) // white
     {
       light.SetColor(255, 255, 0);
+      setColor(255,255,0);
     }
     if (id == 0x00000C04) // green
     {
       light.SetColor(0, 255, 0);
+      setColor(0,255,0);
+
     }
     if (id == 0x00000C05) // white
     {
       light.SetColor(0, 0, 255);
+      setColor(0,0,255);
+
     }
     if (id == 0x00000C06) // green
     {
       light.SetColor(0, 0, 255);
+      setColor(0,0,255);
+
     }
     if (id == 0x00000C07) // white
     {
       light.SetColor(106, 13, 173);
+      setColor(106,13,173);
+
     }
     if (id == 0x00000C08) // green
     {
       light.SetColor(255, 255, 255);
+      setColor(255,255,255);
+
     }
     if (id == 0x00000C09)
     {
       light.SetColor(255, 0, 0);
+      setColor(255,0,0);
+
     }
     if (id == 0x00000C0A)
     {
       light.SetColor(255, 0, 0);
+      setColor(255,0,0);
+
     }
     if (id == 0x00000C0B)
     {
       light.SetColor(255, 255, 0);
+      setColor(255,255,0);
+
     }
     if (id == 0x00000C0C)
     {
       light.SetColor(0, 255, 0);
+      setColor(0,255,0);
+
     }
     if (id == 0x00000C0D)
     {
       light.SetColor(255, 0, 0);
+      setColor(255,0,0);
+
     }
     if (id == 0x00000C0E)
     {
       light.SetColor(0, 0, 255);
+      setColor(0,0,255);
+
     }
     if (id == 0x00000C0F)
     {
       light.SetColor(106, 13, 173);
+      setColor(106,13,173);
+
     }
     if (id == 0x00000C22)
     {
       light.SetColor(255, 255, 255);
+      setColor(255,255,255);
+
     }
     if (id == 0x00000C30)
     {
       light.SetColor(255, 255, 255);
+      setColor(255,255,255);
+
     }
     if (id == 0x00000C31)
     {
       light.SetColor(255, 0, 0);
+      setColor(255,0,0);
+
     }
     if (id == 0x00000C32)
     {
       light.SetColor(0, 255, 0);
+      setColor(0,255,0);
+
     }
     if (id == 0x00000C33)
     {
       light.SetColor(255, 0, 0);
+            setColor(255,0,0);
     }
   }
 }
