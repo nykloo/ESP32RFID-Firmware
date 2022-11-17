@@ -4,7 +4,6 @@
 #include <Arduino.h>
 #define DELAYVAL 384  // 384 //standard delay for manchster decode
 #define TIMEOUT 10000 // standard timeout for manchester decode at  160mhz is 1000000
-
 class Rfid
 {
 public:
@@ -17,7 +16,7 @@ private:
     // pin configuration
     int demodOut = 16;
     int shd = 4;
-    // int mod = 16;
+    int mod = 27;
     int rdyClk = 15;
     byte tagData[5];
     bool decodeTag(unsigned char *buf);

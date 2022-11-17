@@ -1,4 +1,5 @@
 #include "Rfid.h"
+const char * RF_TAG = "RFID";
 
 void Rfid::Enable()
 {
@@ -11,8 +12,11 @@ void Rfid::Disable()
 void Rfid::Init()
 {
     pinMode(shd, OUTPUT);
+    pinMode(mod, OUTPUT);
     pinMode(demodOut, INPUT);
     pinMode(rdyClk, INPUT);
+    digitalWrite(mod, LOW);
+
 }
 uint32_t Rfid::ReadTag()
 {
@@ -127,8 +131,13 @@ bool Rfid::decodeTag(unsigned char *buf)
                 for (row = 0; row < 11; row++)
                 {
                     row_parity = 0;
-                    j = row >> 1;
-
+                    j = row >> 1;//what ???
+                    //1,2,3,4,5,6,7,8,9,10
+                    //0,0,1,1,2,2,3,3,4,5
+                    //hmm i guess whats happen is read lower 4 bits
+                    //then read upper 4 bits
+                    //so i guess we 4 data bits the parity bit 8 times
+                    //then we get 4 more parity bits
                     for (col = 0, row_parity = 0; col < 5; col++)
                     {
                         delayMicroseconds(DELAYVAL);
@@ -185,6 +194,18 @@ bool Rfid::decodeTag(unsigned char *buf)
                 }
                 else
                 {
+                    ESP_LOGI(RF_TAG,"Row Parity: %d",row_parity);
+                    ESP_LOGI(RF_TAG,"Col 0 Parity: %d",col_parity[0]);
+                    ESP_LOGI(RF_TAG,"Col 1 Parity: %d",col_parity[1]);
+                    ESP_LOGI(RF_TAG,"Col 2 Parity: %d",col_parity[2]);
+                    ESP_LOGI(RF_TAG,"Col 3 Parity: %d",col_parity[3]);
+                    ESP_LOGI(RF_TAG,"Col 4 Parity: %d",col_parity[4]);
+                    ESP_LOGI(RF_TAG,"Data 0: %d",buf[0]);
+                    ESP_LOGI(RF_TAG,"Data 1: %d",buf[1]);
+                    ESP_LOGI(RF_TAG,"Data 2: %d",buf[2]);
+                    ESP_LOGI(RF_TAG,"Data 3: %d",buf[3]);
+                    ESP_LOGI(RF_TAG,"Data 4: %d",buf[4]);
+
                     return true;
                 }
 
