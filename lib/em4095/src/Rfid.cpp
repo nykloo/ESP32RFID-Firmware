@@ -1,5 +1,7 @@
 #include "Rfid.h"
-const char * RF_TAG = "RFID";
+const char *RF_TAG = "RFID";
+volatile unsigned int clkCount = 0;
+volatile bool lastEdgeWasFalling = false;
 
 void Rfid::Enable()
 {
@@ -9,6 +11,17 @@ void Rfid::Disable()
 {
     digitalWrite(shd, HIGH);
 }
+void IRAM_ATTR onClk()
+{
+    clkCount++;
+}
+// void IRAM_ATTR fallDetected() {
+//   lastEdgeWasFalling=true;Serial.println("down");
+// }
+// void IRAM_ATTR riseDetected() {
+//  lastEdgeWasFalling=false;Serial.println("up");
+
+// }
 void Rfid::Init()
 {
     pinMode(shd, OUTPUT);
@@ -16,7 +29,10 @@ void Rfid::Init()
     pinMode(demodOut, INPUT);
     pinMode(rdyClk, INPUT);
     digitalWrite(mod, LOW);
-
+    // todo only attach on read command dont want to affect timming while sending commands
+    //attachInterrupt(rdyClk, onClk, RISING);
+    // attachInterrupt(demodOut, riseDetected,RISING);
+    // attachInterrupt(demodOut, fallDetected,FALLING);
 }
 uint32_t Rfid::ReadTag()
 {
@@ -28,6 +44,34 @@ uint32_t Rfid::ReadTag()
     {
         return -1;
     }
+}
+void Rfid::debug()
+{
+    while (0==digitalRead(demodOut))
+    { // sync on falling edge
+    }
+    while (1==digitalRead(demodOut))
+    { // sync on falling edge
+    }
+    clkCount = 0;
+    while (clkCount < 16)
+        ; // we are going to read ever 32 but starting after 16 offset
+    for (int i = 0; i < 512; i++)
+    {   // I think this would contain
+        // instead of reading the pin we infer based on interupt mantained value
+        demodBuffer[i] = digitalRead(demodOut);
+        clkCount = 0;
+        while (clkCount < 64)
+            ;
+    }
+    Serial.println();
+
+    for (int i = 0; i < 512; i++)
+    {   // I think this would contain
+        // instead of reading the pin we infer based on interupt mantained value
+        Serial.print(demodBuffer[i]);
+    }
+    Serial.println();
 }
 bool Rfid::decodeTag(unsigned char *buf)
 {
@@ -41,9 +85,34 @@ bool Rfid::decodeTag(unsigned char *buf)
     unsigned char dat;
     unsigned char j;
 
+    //unsigned int manchesterPosition = 0;
+    // while (true)
+    // {
+
+    //     // if(clkCount>64+8){
+    //     //     //store erron in the response stream?
+    //     //     manchesterPosition=1;
+    //     // }
+    //     // if(clkCount>48){
+    //     //     if(lastEdgeWasFalling){
+    //     //         //vaalue=1
+    //     //     }else{
+    //     //         //value=0;
+    //     //     }
+    //     //     manchesterPosition=0;
+    //     // }else if(manchesterPosition>0){
+    //     //     //store the value bit
+    //     //     manchesterPosition=0;
+    //     // }else{
+    //     //     manchesterPosition=1;
+
+    //     // }
+    // }
+
     while (1)
     {
-        timeCount = 0;
+         timeCount = 0;
+        //clkCount = 0;
         while (0 == digitalRead(demodOut)) // watch for demodOut to go low
         {
 
@@ -131,13 +200,13 @@ bool Rfid::decodeTag(unsigned char *buf)
                 for (row = 0; row < 11; row++)
                 {
                     row_parity = 0;
-                    j = row >> 1;//what ???
-                    //1,2,3,4,5,6,7,8,9,10
-                    //0,0,1,1,2,2,3,3,4,5
-                    //hmm i guess whats happen is read lower 4 bits
-                    //then read upper 4 bits
-                    //so i guess we 4 data bits the parity bit 8 times
-                    //then we get 4 more parity bits
+                    j = row >> 1; // what ???
+                    // 1,2,3,4,5,6,7,8,9,10
+                    // 0,0,1,1,2,2,3,3,4,5
+                    // hmm i guess whats happen is read lower 4 bits
+                    // then read upper 4 bits
+                    // so i guess we 4 data bits the parity bit 8 times
+                    // then we get 4 more parity bits
                     for (col = 0, row_parity = 0; col < 5; col++)
                     {
                         delayMicroseconds(DELAYVAL);
@@ -194,17 +263,17 @@ bool Rfid::decodeTag(unsigned char *buf)
                 }
                 else
                 {
-                    ESP_LOGI(RF_TAG,"Row Parity: %d",row_parity);
-                    ESP_LOGI(RF_TAG,"Col 0 Parity: %d",col_parity[0]);
-                    ESP_LOGI(RF_TAG,"Col 1 Parity: %d",col_parity[1]);
-                    ESP_LOGI(RF_TAG,"Col 2 Parity: %d",col_parity[2]);
-                    ESP_LOGI(RF_TAG,"Col 3 Parity: %d",col_parity[3]);
-                    ESP_LOGI(RF_TAG,"Col 4 Parity: %d",col_parity[4]);
-                    ESP_LOGI(RF_TAG,"Data 0: %d",buf[0]);
-                    ESP_LOGI(RF_TAG,"Data 1: %d",buf[1]);
-                    ESP_LOGI(RF_TAG,"Data 2: %d",buf[2]);
-                    ESP_LOGI(RF_TAG,"Data 3: %d",buf[3]);
-                    ESP_LOGI(RF_TAG,"Data 4: %d",buf[4]);
+                    ESP_LOGI(RF_TAG, "Row Parity: %d", row_parity);
+                    ESP_LOGI(RF_TAG, "Col 0 Parity: %d", col_parity[0]);
+                    ESP_LOGI(RF_TAG, "Col 1 Parity: %d", col_parity[1]);
+                    ESP_LOGI(RF_TAG, "Col 2 Parity: %d", col_parity[2]);
+                    ESP_LOGI(RF_TAG, "Col 3 Parity: %d", col_parity[3]);
+                    ESP_LOGI(RF_TAG, "Col 4 Parity: %d", col_parity[4]);
+                    ESP_LOGI(RF_TAG, "Data 0: %d", buf[0]);
+                    ESP_LOGI(RF_TAG, "Data 1: %d", buf[1]);
+                    ESP_LOGI(RF_TAG, "Data 2: %d", buf[2]);
+                    ESP_LOGI(RF_TAG, "Data 3: %d", buf[3]);
+                    ESP_LOGI(RF_TAG, "Data 4: %d", buf[4]);
 
                     return true;
                 }

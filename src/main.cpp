@@ -127,7 +127,6 @@ static uint8_t Prepare_Data(uint16_t data_low, uint16_t data_hi) {
 // fwd_bit_count set with number of bits to be sent
 //====================================================================
 static void SendForward(uint8_t fwd_bit_count, bool fast) {
-
 // iceman,   21.3us increments for the USclock verification.
 // 55FC * 8us == 440us / 21.3 === 20.65 steps.  could be too short. Go for 56FC instead
 // 32FC * 8us == 256us / 21.3 ==  12.018 steps. ok
@@ -150,7 +149,7 @@ static void SendForward(uint8_t fwd_bit_count, bool fast) {
     // now start writing with bitbanging the antenna. (each bit should be 32*8 total length)
     while (fwd_bit_sz-- > 0) { //prepare next bit modulation
         if (((*fwd_write_ptr++) & 1) == 1) {
-            WaitUS(32 * 8);
+            turn_read_lf_on (32 * 8);
         } else {
             turn_read_lf_off(23 * 8);
             turn_read_lf_on(18 * 8);
@@ -470,6 +469,7 @@ void setup()
   //   delay(5000);
   //   ESP.restart();
   // }
+  Serial.begin(115200);
   delay(100);
   Rfid.Enable();
 }
@@ -477,103 +477,98 @@ uint32_t lastTag = 0;
 bool readmode=false;
 void loop()
 {
-  // ArduinoOTA.handle();
-  // if(ledDiscoveryNeeded){
-  // LightsController.DiscoverLights();
-  // ledDiscoveryNeeded=false;
-  // }
-  //write bit 0 to enter command mode 0b0
-// write command 0b0101
-// write address 0b0101 is for 5
-// 2 extra 0 bytes 0b00
-// write address even parity for 5 is 0b0 becuase the count of 1s is evens
-// data for c08
-// (byte1) (byte1 even parity bit) (0b00000000) (0b0)
-// (byte1) (byte1 even parity bit) (0b00000000) (0b0)
-// (byte1) (byte1 even parity bit) (0b00001100) (0b0)
-// (byte1) (byte1 even parity bit) (0b00001000) (0b1)
-// (col parity byte) (0)           (0b00000100) (0b0)
-//end of command
-//so
-//this is sliced wrong
-// 0b 0 0101 0101 00 0 00000000 0 00000000 0 00001100 0 00001000 1 00000100 0
-//seems like this is the proper way
-// 0b 0 0101 0101 00 0 0000 0 0000 0 0000 0 0000 0 0000 0 1100 0 0000 0 1000 1 0001 0
-//uint64_t writeCommandbad = 0b001010101000000000000000000000000011000000010001000001000;
-uint64_t writeCommand      = 0b001010101000000000000000000000000000011000000001000100010;
-uint64_t readBlock5Command = 0b0100101010;
-uint64_t readConfigCommand = 0b0100101001;
+//   // ArduinoOTA.handle();
+//   // if(ledDiscoveryNeeded){
+//   // LightsController.DiscoverLights();
+//   // ledDiscoveryNeeded=false;
+//   // }
+//   //write bit 0 to enter command mode 0b0
+// // write command 0b0101
+// // write address 0b0101 is for 5
+// // 2 extra 0 bytes 0b00
+// // write address even parity for 5 is 0b0 becuase the count of 1s is evens
+// // data for c08
+// // (byte1) (byte1 even parity bit) (0b00000000) (0b0)
+// // (byte1) (byte1 even parity bit) (0b00000000) (0b0)
+// // (byte1) (byte1 even parity bit) (0b00001100) (0b0)
+// // (byte1) (byte1 even parity bit) (0b00001000) (0b1)
+// // (col parity byte) (0)           (0b00000100) (0b0)
+// //end of command
+// //so
+// //this is sliced wrong
+// // 0b 0 0101 0101 00 0 00000000 0 00000000 0 00001100 0 00001000 1 00000100 0
+// //seems like this is the proper way
+// // 0b 0 0101 0101 00 0 0000 0 0000 0 0000 0 0000 0 0000 0 1100 0 0000 0 1000 1 0001 0
+// //uint64_t writeCommandbad = 0b001010101000000000000000000000000011000000010001000001000;
+// uint64_t writeCommand      = 0b001010101000000000000000000000000000011000000001000100010;
+// uint64_t readBlock5Command = 0b0100101010;
+// uint64_t readConfigCommand = 0b0100101001;
 
-// data read
-// [ 14022][I][Rfid.cpp:192] decodeTag(): [RFID] Row Parity: 2
-// [ 14022][I][Rfid.cpp:193] decodeTag(): [RFID] Col 0 Parity: 2
-// [ 14022][I][Rfid.cpp:194] decodeTag(): [RFID] Col 1 Parity: 2
-// [ 14027][I][Rfid.cpp:195] decodeTag(): [RFID] Col 2 Parity: 2
-// [ 14033][I][Rfid.cpp:196] decodeTag(): [RFID] Col 3 Parity: 0
-// [ 14038][I][Rfid.cpp:197] decodeTag(): [RFID] Col 4 Parity: 0
-// [ 14044][I][Rfid.cpp:198] decodeTag(): [RFID] Data 0: 0
-// [ 14049][I][Rfid.cpp:199] decodeTag(): [RFID] Data 1: 0
-// [ 14054][I][Rfid.cpp:200] decodeTag(): [RFID] Data 2: 0
-// [ 14058][I][Rfid.cpp:201] decodeTag(): [RFID] Data 3: 12
-// [ 14063][I][Rfid.cpp:202] decodeTag(): [RFID] Data 4: 6
-// C06
-// 00000000 
-// do a first field stop of at least 55 rf pulses will always work
-// to send a 1 leave field on for 32 clocks
-// to send a 0 leave field on for 18 clock then off for 14
+// // data read
+// // [ 14022][I][Rfid.cpp:192] decodeTag(): [RFID] Row Parity: 2
+// // [ 14022][I][Rfid.cpp:193] decodeTag(): [RFID] Col 0 Parity: 2
+// // [ 14022][I][Rfid.cpp:194] decodeTag(): [RFID] Col 1 Parity: 2
+// // [ 14027][I][Rfid.cpp:195] decodeTag(): [RFID] Col 2 Parity: 2
+// // [ 14033][I][Rfid.cpp:196] decodeTag(): [RFID] Col 3 Parity: 0
+// // [ 14038][I][Rfid.cpp:197] decodeTag(): [RFID] Col 4 Parity: 0
+// // [ 14044][I][Rfid.cpp:198] decodeTag(): [RFID] Data 0: 0
+// // [ 14049][I][Rfid.cpp:199] decodeTag(): [RFID] Data 1: 0
+// // [ 14054][I][Rfid.cpp:200] decodeTag(): [RFID] Data 2: 0
+// // [ 14058][I][Rfid.cpp:201] decodeTag(): [RFID] Data 3: 12
+// // [ 14063][I][Rfid.cpp:202] decodeTag(): [RFID] Data 4: 6
+// // C06
+// // 00000000 
+// // do a first field stop of at least 55 rf pulses will always work
+// // to send a 1 leave field on for 32 clocks
+// // to send a 0 leave field on for 18 clock then off for 14
 
-//hmm it would probably be better to cound to clocks with an interupt but
-//we can probaly just delay for the amount of time that matches the clocks
-// a clock for 125 khz takes 8us
-if(millis()<10000){//write for first 10 seconds
-//  digitalWrite(27,LOW);
-//  delayMicroseconds(8*16);
-//  digitalWrite(27,HIGH);
-//  delayMicroseconds(8*16);
-// for(int i=56; i--;i>=0){
-//   if(1==((writeCommand>>i)&1)){
-//     digitalWrite(27,LOW);
-//     delayMicroseconds(8*32);
-//   }else{
-//     digitalWrite(27,LOW);
-//     delayMicroseconds(8*18);
-//     digitalWrite(27,HIGH);
-//     delayMicroseconds(8*14);
-//   }
-// }
-//digitalWrite(27,LOW);
+// //hmm it would probably be better to cound to clocks with an interupt but
+// //we can probaly just delay for the amount of time that matches the clocks
+// // a clock for 125 khz takes 8us
+ if(millis()<10000){//write for first 10 seconds
+// //  digitalWrite(27,LOW);
+// //  delayMicroseconds(8*16);
+// //  digitalWrite(27,HIGH);
+// //  delayMicroseconds(8*16);
+// // for(int i=56; i--;i>=0){
+// //   if(1==((writeCommand>>i)&1)){
+// //     digitalWrite(27,LOW);
+// //     delayMicroseconds(8*32);
+// //   }else{
+// //     digitalWrite(27,LOW);
+// //     delayMicroseconds(8*18);
+// //     digitalWrite(27,HIGH);
+// //     delayMicroseconds(8*14);
+// //   }
+// // }
+// //digitalWrite(27,LOW);
 
-  //uint32_t tag = Rfid.ReadTag();
-  delay(50);
-  EM4xWriteWord(0x05,0xC08,0,0,0);
-  // EM4xWriteWord(0x06,0x32,0,0,0);
-  // EM4xWriteWord(0x07,0x32,0,0,0);
-  // EM4xWriteWord(0x08,0x32,0,0,0);
-  // EM4xWriteWord(0x09,0x32,0,0,0);
-  // EM4xWriteWord(0x10,0x32,0,0,0);
-  // EM4xWriteWord(0x11,0x32,0,0,0);
-  // EM4xWriteWord(0x12,0x32,0,0,0);
-  // EM4xWriteWord(0x13,0x32,0,0,0);
+//uint32_t tag = Rfid.ReadTag();
+//  delay(100);
+ //EM4xReadWord(5,0,0,0);
+  //delayMicroseconds(300);
+ // Rfid.debug();
+ EM4xWriteWord(5,0x000001FF,0,0,0);
+ EM4xWriteWord(6,0x3E183000,0,0,0);//vader 8ball
+ }else{ 
 
-}else{
+// // //write done set back to high field
+// // digitalWrite(27,LOW);
+// // if(readmode==false){
+// // ESP_LOGI(TAG, "READ TAG start");
+// // readmode =true;
+// // }
 
-//write done set back to high field
-digitalWrite(27,LOW);
-if(readmode==false){
-ESP_LOGI(TAG, "READ TAG start");
-readmode =true;
-}
+// // //delay(1000);
+// //   // for(int i=0;i<100;i++){
+// //   //   digitalWrite(27,LOW);
+// //   //   delayMicroseconds(126);
+// //   //   digitalWrite(27,HIGH);s
+// //   //   delayMicroseconds(126);
+// //   // }
 
-//delay(1000);
-  // for(int i=0;i<100;i++){
-  //   digitalWrite(27,LOW);
-  //   delayMicroseconds(126);
-  //   digitalWrite(27,HIGH);
-  //   delayMicroseconds(126);
-  // }
-
-  // }
-  //delay(1000);
+// //   // }
+// //   //delay(1000);
   uint32_t tag = Rfid.ReadTag();
 
   if (tag != -1)
@@ -586,5 +581,5 @@ readmode =true;
     }
   }
 }
-
 }
+
