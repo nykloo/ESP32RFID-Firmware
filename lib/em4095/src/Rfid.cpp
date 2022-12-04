@@ -2,7 +2,122 @@
 const char *RF_TAG = "RFID";
 volatile unsigned int clkCount = 0;
 volatile bool lastEdgeWasFalling = false;
+bool g_debugMode = false;
+#define prnt(s) ESP_LOGI(RF_TAG, s)
+#define prnt(s, v) ESP_LOGI(RF_TAG, s, v)
+#define PrintAndLog2(f, v) ESP_LOGI(RF_TAG, f, v)
+#define PrintAndLog(f) ESP_LOGI(RF_TAG, f)
+#define WaitUS delayMicroseconds
+#define turn_read_lf_off(microSeconds) \
+    digitalWrite(27, HIGH);            \
+    delayMicroseconds(microSeconds);
+#define turn_read_lf_on(microSeconds) \
+    digitalWrite(27, LOW);            \
+    delayMicroseconds(microSeconds);
+//-----------------------------------
+// EM4469 / EM4305 routines
+//-----------------------------------
+// Below given command set.
+// Commands are including the even parity, binary mirrored
+#define FWD_CMD_LOGIN 0xC
+#define FWD_CMD_WRITE 0xA
+#define FWD_CMD_READ 0x9
+#define FWD_CMD_PROTECT 0x3
+#define FWD_CMD_DISABLE 0x5
 
+
+
+//====================================================================
+// prepares command bits
+// see EM4469 spec
+//====================================================================
+//--------------------------------------------------------------------
+//  VALUES TAKEN FROM EM4x function: SendForward
+//  START_GAP = 440;       (55*8) cycles at 125kHz (8us = 1cycle)
+//  WRITE_GAP = 128;       (16*8)
+//  WRITE_1   = 256 32*8;  (32*8)
+
+//  These timings work for 4469/4269/4305 (with the 55*8 above)
+//  WRITE_0 = 23*8 , 9*8
+
+uint8_t Rfid::Prepare_Cmd(uint8_t cmd)
+{
+
+    *forward_ptr++ = 0; // start bit
+    *forward_ptr++ = 0; // second pause for 4050 code
+
+    *forward_ptr++ = cmd;
+    cmd >>= 1;
+    *forward_ptr++ = cmd;
+    cmd >>= 1;
+    *forward_ptr++ = cmd;
+    cmd >>= 1;
+    *forward_ptr++ = cmd;
+
+    return 6; // return number of emitted bits
+}
+
+//====================================================================
+// prepares address bits
+// see EM4469 spec
+//====================================================================
+uint8_t Rfid::Prepare_Addr(uint8_t addr)
+{
+
+    register uint8_t line_parity;
+
+    uint8_t i;
+    line_parity = 0;
+    for (i = 0; i < 6; i++)
+    {
+        *forward_ptr++ = addr;
+        line_parity ^= addr;
+        addr >>= 1;
+    }
+
+    *forward_ptr++ = (line_parity & 1);
+
+    return 7; // return number of emitted bits
+}
+
+//====================================================================
+// prepares data bits intreleaved with parity bits
+// see EM4469 spec
+//====================================================================
+uint8_t Rfid::Prepare_Data(uint16_t data_low, uint16_t data_hi)
+{
+
+    register uint8_t column_parity;
+    register uint8_t i, j;
+    register uint16_t data;
+
+    data = data_low;
+    column_parity = 0;
+
+    for (i = 0; i < 4; i++)
+    {
+        register uint8_t line_parity = 0;
+        for (j = 0; j < 8; j++)
+        {
+            line_parity ^= data;
+            column_parity ^= (data & 1) << j;
+            *forward_ptr++ = data;
+            data >>= 1;
+        }
+        *forward_ptr++ = line_parity;
+        if (i == 1)
+            data = data_hi;
+    }
+
+    for (j = 0; j < 8; j++)
+    {
+        *forward_ptr++ = column_parity;
+        column_parity >>= 1;
+    }
+    *forward_ptr = 0;
+
+    return 45; // return number of emitted bits
+}
 void Rfid::Enable()
 {
     digitalWrite(shd, LOW);
@@ -15,13 +130,355 @@ void IRAM_ATTR onClk()
 {
     clkCount++;
 }
-// void IRAM_ATTR fallDetected() {
-//   lastEdgeWasFalling=true;Serial.println("down");
-// }
-// void IRAM_ATTR riseDetected() {
-//  lastEdgeWasFalling=false;Serial.println("up");
 
-// }
+// search for given preamble in given BitStream and return success=1 or fail=0 and startIndex (where it was found) and length if not fineone
+// fineone does not look for a repeating preamble for em4x05/4x69 sends preamble once, so look for it once in the first pLen bits
+bool Rfid::preambleSearchEx(uint8_t *BitStream, uint8_t *preamble, size_t pLen, size_t *size, size_t *startIdx, bool findone)
+{
+    // Sanity check.  If preamble length is bigger than bitstream length.
+    if (*size <= pLen)
+        return false;
+
+    uint8_t foundCnt = 0;
+    for (size_t idx = 0; idx < *size - pLen; idx++)
+    {
+        if (memcmp(BitStream + idx, preamble, pLen) == 0)
+        {
+            // first index found
+            foundCnt++;
+            if (foundCnt == 1)
+            {
+                if (g_debugMode)
+                    prnt("DEBUG: preamble found at %u", idx);
+                *startIdx = idx;
+                if (findone)
+                    return true;
+            }
+            else if (foundCnt == 2)
+            {
+                *size = idx - *startIdx;
+                return true;
+            }
+        }
+    }
+    return false;
+}
+static inline bool oddparity32(uint32_t x)
+{
+#if !defined __GNUC__
+    x ^= x >> 16;
+    x ^= x >> 8;
+    return oddparity8(x);
+#else
+    return !__builtin_parity(x);
+#endif
+}
+// by marshmellow
+// pass bits to be tested in bits, length bits passed in bitLen, and parity type (even=0 | odd=1) in pType
+// returns 1 if passed
+bool parityTest(uint32_t bits, uint8_t bitLen, uint8_t pType)
+{
+    return oddparity32(bits) ^ pType;
+}
+// by marshmellow
+// takes a array of binary values, start position, length of bits per parity (includes parity bit - MAX 32),
+//   Parity Type (1 for odd; 0 for even; 2 for Always 1's; 3 for Always 0's), and binary Length (length to run)
+size_t removeParity(uint8_t *BitStream, size_t startIdx, uint8_t pLen, uint8_t pType, size_t bLen)
+{
+    uint32_t parityWd = 0;
+    size_t bitCnt = 0;
+    for (int word = 0; word < (bLen); word += pLen)
+    {
+        for (int bit = 0; bit < pLen; bit++)
+        {
+            if (word + bit >= bLen)
+                break;
+            parityWd = (parityWd << 1) | BitStream[startIdx + word + bit];
+            BitStream[bitCnt++] = (BitStream[startIdx + word + bit]);
+        }
+        if (word + pLen > bLen)
+            break;
+
+        bitCnt--; // overwrite parity with next data
+        // if parity fails then return 0
+        switch (pType)
+        {
+        case 3:
+            if (BitStream[bitCnt] == 1)
+            {
+                return 0;
+            }
+            break; // should be 0 spacer bit
+        case 2:
+            if (BitStream[bitCnt] == 0)
+            {
+                return 0;
+            }
+            break; // should be 1 spacer bit
+        default:
+            if (parityTest(parityWd, pLen, pType) == 0)
+            {
+                return 0;
+            }
+            break; // test parity
+        }
+        parityWd = 0;
+    }
+    // if we got here then all the parities passed
+    // return size
+    return bitCnt;
+}
+bool EM_EndParityTest(uint8_t *BitStream, size_t size, uint8_t rows, uint8_t cols, uint8_t pType)
+{
+    if (rows * cols > size)
+        return false;
+    uint8_t colP = 0;
+    // assume last col is a parity and do not test
+    for (uint8_t colNum = 0; colNum < cols - 1; colNum++)
+    {
+        for (uint8_t rowNum = 0; rowNum < rows; rowNum++)
+        {
+            colP ^= BitStream[(rowNum * cols) + colNum];
+        //Serial.print(BitStream[(rowNum * cols) + colNum]);
+        }
+        //Serial.println();
+        if (colP != pType)
+            return false;
+    }
+    return true;
+}
+
+
+
+//====================================================================
+// Forward Link send function
+// Requires: forwarLink_data filled with valid bits (1 bit per byte)
+// fwd_bit_count set with number of bits to be sent
+//====================================================================
+void Rfid::SendForward(uint8_t fwd_bit_count, bool fast)
+{
+// iceman,   21.3us increments for the USclock verification.
+// 55FC * 8us == 440us / 21.3 === 20.65 steps.  could be too short. Go for 56FC instead
+// 32FC * 8us == 256us / 21.3 ==  12.018 steps. ok
+// 16FC * 8us == 128us / 21.3 ==  6.009 steps. ok
+#ifndef EM_START_GAP
+#define EM_START_GAP 55 * 8
+#endif
+
+    fwd_write_ptr = forwardLink_data;
+    fwd_bit_sz = fwd_bit_count;
+
+    // force 1st mod pulse (start gap must be longer for 4305)
+    fwd_bit_sz--; // prepare next bit modulation
+    fwd_write_ptr++;
+
+    turn_read_lf_off(EM_START_GAP);
+    turn_read_lf_on(18 * 8);
+
+    // now start writing with bitbanging the antenna. (each bit should be 32*8 total length)
+    while (fwd_bit_sz-- > 0)
+    { // prepare next bit modulation
+        if (((*fwd_write_ptr++) & 1) == 1)
+        {
+            turn_read_lf_on(32 * 8);
+        }
+        else
+        {
+            turn_read_lf_off(23 * 8);
+            turn_read_lf_on(18 * 8);
+        }
+    }
+}
+
+void Rfid::EM4xLoginEx(uint32_t pwd)
+{
+    forward_ptr = forwardLink_data;
+    uint8_t len = Prepare_Cmd(FWD_CMD_LOGIN);
+    len += Prepare_Data(pwd & 0xFFFF, pwd >> 16);
+
+    SendForward(len, false);
+    // WaitUS(20); // no wait for login command.
+    //  should receive
+    //  0000 1010 ok
+    //  0000 0001 fail
+}
+
+void Rfid::EM4xLogin(uint32_t pwd)
+{
+
+    EM4xLoginEx(pwd);
+
+    WaitUS(400);
+}
+void Rfid::WriteTag(uint8_t addr, uint32_t data){
+    EM4xWriteWord(addr,data,0,0);
+}
+
+void Rfid::EM4xWriteWord(uint8_t addr, uint32_t data, uint32_t pwd, uint8_t usepwd)
+{
+
+    /* should we read answer from Logincommand?
+     *
+     * should receive
+     * 0000 1010 ok.
+     * 0000 0001 fail
+     **/
+    if (usepwd)
+        EM4xLoginEx(pwd);
+
+    forward_ptr = forwardLink_data;
+    uint8_t len = Prepare_Cmd(FWD_CMD_WRITE);
+    len += Prepare_Addr(addr);
+    len += Prepare_Data(data & 0xFFFF, data >> 16);
+
+    // String sdata = "";
+
+    // for (int i = 0; i < len; i++)
+    // {
+    //     sdata += (char)((forward_ptr[i]&1)+48);
+    //     //Serial.print(forward_ptr[i]);
+    //     //Serial.print(',');
+    // }
+    // ESP_LOGI(RF_TAG, "Write Buffer: %s", sdata.c_str());
+    SendForward(len, false);
+}
+
+void Rfid::EM4xProtectWord(uint32_t data, uint32_t pwd, uint8_t usepwd)
+{
+
+    /* should we read answer from Logincommand?
+     *
+     * should receive
+     * 0000 1010 ok.
+     * 0000 0001 fail
+     **/
+    if (usepwd)
+        EM4xLoginEx(pwd);
+
+    forward_ptr = forwardLink_data;
+    uint8_t len = Prepare_Cmd(FWD_CMD_PROTECT);
+    len += Prepare_Data(data & 0xFFFF, data >> 16);
+
+    SendForward(len, false);
+}
+void Rfid::EM4xReadWord(uint8_t addr, uint32_t pwd, uint8_t usepwd)
+{
+
+    // clear buffer now so it does not interfere with timing later
+
+    /* should we read answer from Logincommand?
+     *
+     * should receive
+     * 0000 1010 ok
+     * 0000 0001 fail
+     **/
+    if (usepwd)
+        EM4xLoginEx(pwd);
+
+    forward_ptr = forwardLink_data;
+    uint8_t len = Prepare_Cmd(FWD_CMD_READ);
+    len += Prepare_Addr(addr);
+
+    SendForward(len, false);
+}
+uint32_t Rfid::ReadTag(uint8_t address)
+{
+    // send read
+    EM4xReadWord(address, 0, 0);
+    //loging here may cause issues with timing!!!!!!
+    RecordFromAntenna(127);
+    // attempt to find a response
+    uint32_t result;
+
+    if (EM4x05testDemodReadData(&result, true))
+    {
+        //ESP_LOGI(RF_TAG, "READ COMPLETE %x", result);
+        return result;
+    }
+    return 0;
+}
+    std::array<uint32_t,15> Rfid::DumpTag(){
+        std::array<uint32_t,15> data{0};
+        for(int i=0; i<data.size();i++){
+            if(i!=2||i!=14||i!=15){
+            data[i]=ReadTag(i);
+            }
+            WaitUS(400);
+        }
+        return data;
+    }
+
+// set the demod buffer with given array of binary (one bit per byte)
+// by marshmellow
+void Rfid::setDemodBuf(uint8_t *buff, size_t size, size_t startIdx)
+{
+    if (buff == NULL)
+        return;
+
+    if (size > MAX_DEMOD_BUF_LEN - startIdx)
+        size = MAX_DEMOD_BUF_LEN - startIdx;
+
+    size_t i = 0;
+    for (; i < size; i++)
+    {
+        DemodBuffer[i] = buff[startIdx++];
+    }
+    DemodBufferLen = size;
+    return;
+}
+// least significant bit first
+uint32_t bytebits_to_byteLSBF(uint8_t *src, size_t numbits)
+{
+    uint32_t num = 0;
+    for (int i = 0; i < numbits; i++)
+    {
+        num = (num << 1) | *(src + (numbits - (i + 1)));
+    }
+    return num;
+}
+bool Rfid::EM4x05testDemodReadData(uint32_t *word, bool readCmd)
+{
+    // em4x05/em4x69 command response preamble is 00001010
+    // skip first two 0 bits as they might have been missed in the demod
+    uint8_t preamble[] = {0, 0, 1, 0, 1, 0};
+    size_t startIdx = 0;
+
+    // set size to 20 to only test first 14 positions for the preamble or less if not a read command
+    size_t size = (readCmd) ? 20 : 11;
+    // sanity check
+    size = (size > DemodBufferLen) ? DemodBufferLen : size;
+    // test preamble
+    if (!preambleSearchEx(DemodBuffer, preamble, sizeof(preamble), &size, &startIdx, true))
+    {
+        if (g_debugMode)
+            PrintAndLog2("DEBUG: Error - EM4305 preamble not found :: %d", startIdx);
+        return false;
+    }
+    // if this is a readword command, get the read bytes and test the parities
+    if (readCmd)
+    {
+        //the column parity row is off on esp32 i think it may be timing/scheduler related? maybe every bit tha is read gets alittle farther off?
+         if (!EM_EndParityTest(DemodBuffer + startIdx + sizeof(preamble), 45, 5, 9, 0))
+        {
+            if (g_debugMode)
+                PrintAndLog("DEBUG: Error - End Parity check failed");
+            return false;
+        }
+        //test for even parity bits and remove them. (leave out the end row of parities so 36 bits)
+        if (removeParity(DemodBuffer, startIdx + sizeof(preamble), 9, 0, 36) == 0)
+        {
+            if (g_debugMode)
+                PrintAndLog("DEBUG: Error - Parity not detected");
+            return false;
+        }
+
+        setDemodBuf(DemodBuffer, 32, 0);
+        // setClockGrid(0,0);
+
+        *word = bytebits_to_byteLSBF(DemodBuffer, 32);
+    }
+    return true;
+}
 void Rfid::Init()
 {
     pinMode(shd, OUTPUT);
@@ -30,311 +487,39 @@ void Rfid::Init()
     pinMode(rdyClk, INPUT);
     digitalWrite(mod, LOW);
     // todo only attach on read command dont want to affect timming while sending commands
-    //attachInterrupt(rdyClk, onClk, RISING);
-    // attachInterrupt(demodOut, riseDetected,RISING);
-    // attachInterrupt(demodOut, fallDetected,FALLING);
+    attachInterrupt(rdyClk, onClk, RISING);
 }
-uint32_t Rfid::ReadTag()
+
+void Rfid::RecordFromAntenna(uint numberOfBits)
 {
-    if (scanForTag(tagData) == true)
+    if (numberOfBits > MAX_DEMOD_BUF_LEN)
     {
-        return (tagData[1] << 24) | (tagData[2] << 16) | (tagData[3] << 8) | (tagData[4]);
+        return;
     }
-    else
-    {
-        return -1;
-    }
-}
-void Rfid::debug()
-{
-    while (0==digitalRead(demodOut))
+    // preturn this is wrong
+    while (0 == digitalRead(demodOut))
     { // sync on falling edge
     }
-    while (1==digitalRead(demodOut))
+    while (1 == digitalRead(demodOut))
     { // sync on falling edge
     }
     clkCount = 0;
-    while (clkCount < 16)
-        ; // we are going to read ever 32 but starting after 16 offset
-    for (int i = 0; i < 512; i++)
-    {   // I think this would contain
-        // instead of reading the pin we infer based on interupt mantained value
-        demodBuffer[i] = digitalRead(demodOut);
+    while (clkCount < 5)
+        ; //read offset a few lcocks to avoid the edge
+    for (int i = 0; i < numberOfBits; i++)
+    {
+        DemodBuffer[i] = digitalRead(demodOut);
         clkCount = 0;
         while (clkCount < 64)
             ;
     }
-    Serial.println();
+    DemodBufferLen = numberOfBits;
+    //print raw buffer
+    // String data = "";
 
-    for (int i = 0; i < 512; i++)
-    {   // I think this would contain
-        // instead of reading the pin we infer based on interupt mantained value
-        Serial.print(demodBuffer[i]);
-    }
-    Serial.println();
-}
-bool Rfid::decodeTag(unsigned char *buf)
-{
-
-    unsigned char i = 0;
-    unsigned short timeCount;
-    unsigned char timeOutFlag = 0;
-    unsigned char row, col;
-    unsigned char row_parity;
-    unsigned char col_parity[5];
-    unsigned char dat;
-    unsigned char j;
-
-    //unsigned int manchesterPosition = 0;
-    // while (true)
+    // for (int i = 0; i < numberOfBits; i++)
     // {
-
-    //     // if(clkCount>64+8){
-    //     //     //store erron in the response stream?
-    //     //     manchesterPosition=1;
-    //     // }
-    //     // if(clkCount>48){
-    //     //     if(lastEdgeWasFalling){
-    //     //         //vaalue=1
-    //     //     }else{
-    //     //         //value=0;
-    //     //     }
-    //     //     manchesterPosition=0;
-    //     // }else if(manchesterPosition>0){
-    //     //     //store the value bit
-    //     //     manchesterPosition=0;
-    //     // }else{
-    //     //     manchesterPosition=1;
-
-    //     // }
+    //     data += DemodBuffer[i];
     // }
-
-    while (1)
-    {
-         timeCount = 0;
-        //clkCount = 0;
-        while (0 == digitalRead(demodOut)) // watch for demodOut to go low
-        {
-
-            if (timeCount >= TIMEOUT) // if we pass TIMEOUT milliseconds, break out of the loop
-            {
-                break;
-            }
-            else
-            {
-                timeCount++;
-            }
-        }
-
-        if (timeCount >= 600)
-        {
-            return false;
-        }
-        timeCount = 0;
-
-        delayMicroseconds(DELAYVAL);
-        if (digitalRead(demodOut))
-        {
-
-            for (i = 0; i < 8; i++) // 9 header bits
-            {
-                timeCount = 0;                     // restart counting
-                while (1 == digitalRead(demodOut)) // while DEMOD out is high
-                {
-                    if (timeCount == TIMEOUT)
-                    {
-                        timeOutFlag = 1;
-                        break;
-                    }
-                    else
-                    {
-                        timeCount++;
-                    }
-                }
-
-                if (timeOutFlag)
-                {
-                    break;
-                }
-                else
-                {
-                    delayMicroseconds(DELAYVAL);
-                    if (0 == digitalRead(demodOut))
-                    {
-                        break;
-                    }
-                }
-            } // end for loop
-
-            if (timeOutFlag)
-            {
-                timeOutFlag = 0;
-                return false;
-            }
-
-            if (i == 8) // Receive the data
-            {
-
-                timeOutFlag = 0;
-                timeCount = 0;
-                while (1 == digitalRead(demodOut))
-                {
-                    if (timeCount == TIMEOUT)
-                    {
-                        timeOutFlag = 1;
-                        break;
-                    }
-                    else
-                    {
-                        timeCount++;
-                    }
-
-                    if (timeOutFlag)
-                    {
-                        timeOutFlag = 0;
-                        return false;
-                    }
-                }
-
-                col_parity[0] = col_parity[1] = col_parity[2] = col_parity[3] = col_parity[4] = 0;
-                for (row = 0; row < 11; row++)
-                {
-                    row_parity = 0;
-                    j = row >> 1; // what ???
-                    // 1,2,3,4,5,6,7,8,9,10
-                    // 0,0,1,1,2,2,3,3,4,5
-                    // hmm i guess whats happen is read lower 4 bits
-                    // then read upper 4 bits
-                    // so i guess we 4 data bits the parity bit 8 times
-                    // then we get 4 more parity bits
-                    for (col = 0, row_parity = 0; col < 5; col++)
-                    {
-                        delayMicroseconds(DELAYVAL);
-                        if (digitalRead(demodOut))
-                        {
-                            dat = 1;
-                        }
-                        else
-                        {
-                            dat = 0;
-                        }
-
-                        if (col < 4 && row < 10)
-                        {
-                            buf[j] <<= 1;
-                            buf[j] |= dat;
-                        }
-
-                        row_parity += dat;
-                        col_parity[col] += dat;
-                        timeCount = 0;
-                        while (digitalRead(demodOut) == dat)
-                        {
-                            if (timeCount == TIMEOUT)
-                            {
-                                timeOutFlag = 1;
-                                break;
-                            }
-                            else
-                            {
-                                timeCount++;
-                            }
-                        }
-                        if (timeOutFlag)
-                        {
-                            break;
-                        }
-                    }
-
-                    if (row < 10)
-                    {
-                        if ((row_parity & 0x01) || timeOutFlag) // Row parity
-                        {
-                            timeOutFlag = 1;
-                            break;
-                        }
-                    }
-                }
-
-                if (timeOutFlag || (col_parity[0] & 0x01) || (col_parity[1] & 0x01) || (col_parity[2] & 0x01) || (col_parity[3] & 0x01)) // Column parity
-                {
-                    timeOutFlag = 0;
-                    return false;
-                }
-                else
-                {
-                    ESP_LOGI(RF_TAG, "Row Parity: %d", row_parity);
-                    ESP_LOGI(RF_TAG, "Col 0 Parity: %d", col_parity[0]);
-                    ESP_LOGI(RF_TAG, "Col 1 Parity: %d", col_parity[1]);
-                    ESP_LOGI(RF_TAG, "Col 2 Parity: %d", col_parity[2]);
-                    ESP_LOGI(RF_TAG, "Col 3 Parity: %d", col_parity[3]);
-                    ESP_LOGI(RF_TAG, "Col 4 Parity: %d", col_parity[4]);
-                    ESP_LOGI(RF_TAG, "Data 0: %d", buf[0]);
-                    ESP_LOGI(RF_TAG, "Data 1: %d", buf[1]);
-                    ESP_LOGI(RF_TAG, "Data 2: %d", buf[2]);
-                    ESP_LOGI(RF_TAG, "Data 3: %d", buf[3]);
-                    ESP_LOGI(RF_TAG, "Data 4: %d", buf[4]);
-
-                    return true;
-                }
-
-            } // end if(i==8)
-
-            return false;
-
-        } // if(digitalRead(demodOut))
-    }     // while(1)
-}
-bool Rfid::compareTagData(byte *tagData1, byte *tagData2)
-{
-    for (int j = 0; j < 5; j++)
-    {
-        if (tagData1[j] != tagData2[j])
-        {
-            return false; // if any of the ID numbers are not the same, return a false
-        }
-    }
-
-    return true; // all id numbers have been verified
-}
-void Rfid::transferToBuffer(byte *tagData, byte *tagDataBuffer)
-{
-    for (int j = 0; j < 5; j++)
-    {
-        tagDataBuffer[j] = tagData[j];
-    }
-}
-bool Rfid::scanForTag(byte *tagData)
-{
-    static byte tagDataBuffer[5]; // A Buffer for verifying the tag data. 'static' so that the data is maintained the next time the loop is called
-    static int readCount = 0;     // the number of times a tag has been read. 'static' so that the data is maintained the next time the loop is called
-    boolean verifyRead = false;   // true when a tag's ID matches a previous read, false otherwise
-    boolean tagCheck = false;     // true when a tag has been read, false otherwise
-
-    tagCheck = decodeTag(tagData); // run the decodetag to check for the tag
-    if (tagCheck == true)          // if 'true' is returned from the decodetag function, a tag was succesfully scanned
-    {
-
-        readCount++; // increase count since we've seen a tag
-
-        if (readCount == 1) // if have read a tag only one time, proceed
-        {
-            transferToBuffer(tagData, tagDataBuffer); // place the data from the current tag read into the buffer for the next read
-        }
-        else if (readCount == 2) // if we see a tag a second time, proceed
-        {
-            verifyRead = compareTagData(tagData, tagDataBuffer); // run the checkBuffer function to compare the data in the buffer (the last read) with the data from the current read
-
-            if (verifyRead == true) // if a 'true' is returned by compareTagData, the current read matches the last read
-            {
-                readCount = 0; // because a tag has been succesfully verified, reset the readCount to '0' for the next tag
-                return true;
-            }
-        }
-    }
-    else
-    {
-        return false;
-    }
-    return true;
+    // ESP_LOGI(RF_TAG, "Read Buffer: %s", data.c_str());
 }

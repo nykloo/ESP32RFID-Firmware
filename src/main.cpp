@@ -8,7 +8,6 @@
 #include <Adafruit_NeoPixel.h>
 #define LED_PIN 14
 #define LED_COUNT 3
-#define WaitUS delayMicroseconds
 const char *ssid = "Kyber Nexus";
 const char *password = "123456789";
 const char *TAG = "MAIN";
@@ -18,229 +17,8 @@ volatile bool ledDiscoveryNeeded=false;
 MagicHome LightsController;
 Adafruit_NeoPixel pixels = Adafruit_NeoPixel(LED_COUNT, LED_PIN, NEO_GRB + NEO_KHZ800);
 
-//-----------------------------------
-// EM4469 / EM4305 routines
-//-----------------------------------
-// Below given command set.
-// Commands are including the even parity, binary mirrored
-#define FWD_CMD_LOGIN   0xC
-#define FWD_CMD_WRITE   0xA
-#define FWD_CMD_READ    0x9
-#define FWD_CMD_PROTECT 0x3
-#define FWD_CMD_DISABLE 0x5
-
-static uint8_t forwardLink_data[64]; //array of forwarded bits
-static uint8_t *forward_ptr;  //ptr for forward message preparation
-static uint8_t fwd_bit_sz; //forwardlink bit counter
-static uint8_t *fwd_write_ptr;  //forwardlink bit pointer
-
-//====================================================================
-// prepares command bits
-// see EM4469 spec
-//====================================================================
-//--------------------------------------------------------------------
-//  VALUES TAKEN FROM EM4x function: SendForward
-//  START_GAP = 440;       (55*8) cycles at 125kHz (8us = 1cycle)
-//  WRITE_GAP = 128;       (16*8)
-//  WRITE_1   = 256 32*8;  (32*8)
-
-//  These timings work for 4469/4269/4305 (with the 55*8 above)
-//  WRITE_0 = 23*8 , 9*8
-
-static uint8_t Prepare_Cmd(uint8_t cmd) {
-
-    *forward_ptr++ = 0; //start bit
-    *forward_ptr++ = 0; //second pause for 4050 code
-
-    *forward_ptr++ = cmd;
-    cmd >>= 1;
-    *forward_ptr++ = cmd;
-    cmd >>= 1;
-    *forward_ptr++ = cmd;
-    cmd >>= 1;
-    *forward_ptr++ = cmd;
-
-    return 6; //return number of emitted bits
-}
-
-//====================================================================
-// prepares address bits
-// see EM4469 spec
-//====================================================================
-static uint8_t Prepare_Addr(uint8_t addr) {
-
-    register uint8_t line_parity;
-
-    uint8_t i;
-    line_parity = 0;
-    for (i = 0; i < 6; i++) {
-        *forward_ptr++ = addr;
-        line_parity ^= addr;
-        addr >>= 1;
-    }
-
-    *forward_ptr++ = (line_parity & 1);
-
-    return 7; //return number of emitted bits
-}
-
-//====================================================================
-// prepares data bits intreleaved with parity bits
-// see EM4469 spec
-//====================================================================
-static uint8_t Prepare_Data(uint16_t data_low, uint16_t data_hi) {
-
-    register uint8_t column_parity;
-    register uint8_t i, j;
-    register uint16_t data;
-
-    data = data_low;
-    column_parity = 0;
-
-    for (i = 0; i < 4; i++) {
-        register uint8_t line_parity = 0;
-        for (j = 0; j < 8; j++) {
-            line_parity ^= data;
-            column_parity ^= (data & 1) << j;
-            *forward_ptr++ = data;
-            data >>= 1;
-        }
-        *forward_ptr++ = line_parity;
-        if (i == 1)
-            data = data_hi;
-    }
-
-    for (j = 0; j < 8; j++) {
-        *forward_ptr++ = column_parity;
-        column_parity >>= 1;
-    }
-    *forward_ptr = 0;
-
-    return 45; //return number of emitted bits
-}
-#define turn_read_lf_off(microSeconds) digitalWrite(27,HIGH); delayMicroseconds(microSeconds);
-#define turn_read_lf_on(microSeconds) digitalWrite(27,LOW); delayMicroseconds(microSeconds);
-
-//====================================================================
-// Forward Link send function
-// Requires: forwarLink_data filled with valid bits (1 bit per byte)
-// fwd_bit_count set with number of bits to be sent
-//====================================================================
-static void SendForward(uint8_t fwd_bit_count, bool fast) {
-// iceman,   21.3us increments for the USclock verification.
-// 55FC * 8us == 440us / 21.3 === 20.65 steps.  could be too short. Go for 56FC instead
-// 32FC * 8us == 256us / 21.3 ==  12.018 steps. ok
-// 16FC * 8us == 128us / 21.3 ==  6.009 steps. ok
-#ifndef EM_START_GAP
-#define EM_START_GAP 55*8
-#endif
-
-    fwd_write_ptr = forwardLink_data;
-    fwd_bit_sz = fwd_bit_count;
 
 
-    // force 1st mod pulse (start gap must be longer for 4305)
-    fwd_bit_sz--; //prepare next bit modulation
-    fwd_write_ptr++;
-
-    turn_read_lf_off(EM_START_GAP);
-    turn_read_lf_on(18 * 8);
-
-    // now start writing with bitbanging the antenna. (each bit should be 32*8 total length)
-    while (fwd_bit_sz-- > 0) { //prepare next bit modulation
-        if (((*fwd_write_ptr++) & 1) == 1) {
-            turn_read_lf_on (32 * 8);
-        } else {
-            turn_read_lf_off(23 * 8);
-            turn_read_lf_on(18 * 8);
-        }
-    }
-}
-
-static void EM4xLoginEx(uint32_t pwd) {
-    forward_ptr = forwardLink_data;
-    uint8_t len = Prepare_Cmd(FWD_CMD_LOGIN);
-    len += Prepare_Data(pwd & 0xFFFF, pwd >> 16);
-    SendForward(len, false);
-    //WaitUS(20); // no wait for login command.
-    // should receive
-    // 0000 1010 ok
-    // 0000 0001 fail
-}
-
-
-void EM4xLogin(uint32_t pwd, bool ledcontrol) {
-
-
-
-
-    EM4xLoginEx(pwd);
-
-    WaitUS(400);
-}
-
-void EM4xReadWord(uint8_t addr, uint32_t pwd, uint8_t usepwd, bool ledcontrol) {
-
-
-    // clear buffer now so it does not interfere with timing later
-
-    /* should we read answer from Logincommand?
-    *
-    * should receive
-    * 0000 1010 ok
-    * 0000 0001 fail
-    **/
-    if (usepwd) EM4xLoginEx(pwd);
-
-    forward_ptr = forwardLink_data;
-    uint8_t len = Prepare_Cmd(FWD_CMD_READ);
-    len += Prepare_Addr(addr);
-
-    SendForward(len, false);
-
-    WaitUS(400);
-
-
-}
-
-void EM4xWriteWord(uint8_t addr, uint32_t data, uint32_t pwd, uint8_t usepwd, bool ledcontrol) {
-
-
-
-    /* should we read answer from Logincommand?
-    *
-    * should receive
-    * 0000 1010 ok.
-    * 0000 0001 fail
-    **/
-    if (usepwd) EM4xLoginEx(pwd);
-
-    forward_ptr = forwardLink_data;
-    uint8_t len = Prepare_Cmd(FWD_CMD_WRITE);
-    len += Prepare_Addr(addr);
-    len += Prepare_Data(data & 0xFFFF, data >> 16);
-
-    SendForward(len, false);
-}
-
-void EM4xProtectWord(uint32_t data, uint32_t pwd, uint8_t usepwd, bool ledcontrol) {
-
-
-    /* should we read answer from Logincommand?
-    *
-    * should receive
-    * 0000 1010 ok.
-    * 0000 0001 fail
-    **/
-    if (usepwd) EM4xLoginEx(pwd);
-
-    forward_ptr = forwardLink_data;
-    uint8_t len = Prepare_Cmd(FWD_CMD_PROTECT);
-    len += Prepare_Data(data & 0xFFFF, data >> 16);
-
-    SendForward(len, false);
-
-}
 
 
 void setColor(byte r,byte g, byte b){
@@ -482,104 +260,24 @@ void loop()
 //   // LightsController.DiscoverLights();
 //   // ledDiscoveryNeeded=false;
 //   // }
-//   //write bit 0 to enter command mode 0b0
-// // write command 0b0101
-// // write address 0b0101 is for 5
-// // 2 extra 0 bytes 0b00
-// // write address even parity for 5 is 0b0 becuase the count of 1s is evens
-// // data for c08
-// // (byte1) (byte1 even parity bit) (0b00000000) (0b0)
-// // (byte1) (byte1 even parity bit) (0b00000000) (0b0)
-// // (byte1) (byte1 even parity bit) (0b00001100) (0b0)
-// // (byte1) (byte1 even parity bit) (0b00001000) (0b1)
-// // (col parity byte) (0)           (0b00000100) (0b0)
-// //end of command
-// //so
-// //this is sliced wrong
-// // 0b 0 0101 0101 00 0 00000000 0 00000000 0 00001100 0 00001000 1 00000100 0
-// //seems like this is the proper way
-// // 0b 0 0101 0101 00 0 0000 0 0000 0 0000 0 0000 0 0000 0 1100 0 0000 0 1000 1 0001 0
-// //uint64_t writeCommandbad = 0b001010101000000000000000000000000011000000010001000001000;
-// uint64_t writeCommand      = 0b001010101000000000000000000000000000011000000001000100010;
-// uint64_t readBlock5Command = 0b0100101010;
-// uint64_t readConfigCommand = 0b0100101001;
 
-// // data read
-// // [ 14022][I][Rfid.cpp:192] decodeTag(): [RFID] Row Parity: 2
-// // [ 14022][I][Rfid.cpp:193] decodeTag(): [RFID] Col 0 Parity: 2
-// // [ 14022][I][Rfid.cpp:194] decodeTag(): [RFID] Col 1 Parity: 2
-// // [ 14027][I][Rfid.cpp:195] decodeTag(): [RFID] Col 2 Parity: 2
-// // [ 14033][I][Rfid.cpp:196] decodeTag(): [RFID] Col 3 Parity: 0
-// // [ 14038][I][Rfid.cpp:197] decodeTag(): [RFID] Col 4 Parity: 0
-// // [ 14044][I][Rfid.cpp:198] decodeTag(): [RFID] Data 0: 0
-// // [ 14049][I][Rfid.cpp:199] decodeTag(): [RFID] Data 1: 0
-// // [ 14054][I][Rfid.cpp:200] decodeTag(): [RFID] Data 2: 0
-// // [ 14058][I][Rfid.cpp:201] decodeTag(): [RFID] Data 3: 12
-// // [ 14063][I][Rfid.cpp:202] decodeTag(): [RFID] Data 4: 6
-// // C06
-// // 00000000 
-// // do a first field stop of at least 55 rf pulses will always work
-// // to send a 1 leave field on for 32 clocks
-// // to send a 0 leave field on for 18 clock then off for 14
-
-// //hmm it would probably be better to cound to clocks with an interupt but
-// //we can probaly just delay for the amount of time that matches the clocks
-// // a clock for 125 khz takes 8us
- if(millis()<10000){//write for first 10 seconds
-// //  digitalWrite(27,LOW);
-// //  delayMicroseconds(8*16);
-// //  digitalWrite(27,HIGH);
-// //  delayMicroseconds(8*16);
-// // for(int i=56; i--;i>=0){
-// //   if(1==((writeCommand>>i)&1)){
-// //     digitalWrite(27,LOW);
-// //     delayMicroseconds(8*32);
-// //   }else{
-// //     digitalWrite(27,LOW);
-// //     delayMicroseconds(8*18);
-// //     digitalWrite(27,HIGH);
-// //     delayMicroseconds(8*14);
-// //   }
-// // }
-// //digitalWrite(27,LOW);
-
-//uint32_t tag = Rfid.ReadTag();
-//  delay(100);
- //EM4xReadWord(5,0,0,0);
-  //delayMicroseconds(300);
- // Rfid.debug();
- EM4xWriteWord(5,0x000001FF,0,0,0);
- EM4xWriteWord(6,0x3E183000,0,0,0);//vader 8ball
+ if(millis()<10000){
+ //Rfid.EM4xWriteWord(6,0x3E183000,0,0,0);//vader 8ball
  }else{ 
-
-// // //write done set back to high field
-// // digitalWrite(27,LOW);
-// // if(readmode==false){
-// // ESP_LOGI(TAG, "READ TAG start");
-// // readmode =true;
-// // }
-
-// // //delay(1000);
-// //   // for(int i=0;i<100;i++){
-// //   //   digitalWrite(27,LOW);
-// //   //   delayMicroseconds(126);
-// //   //   digitalWrite(27,HIGH);s
-// //   //   delayMicroseconds(126);
-// //   // }
-
-// //   // }
-// //   //delay(1000);
-  uint32_t tag = Rfid.ReadTag();
-
-  if (tag != -1)
-  {
-    Serial.println(tag, HEX);
-    if (tag != lastTag)
-    {
-      lastTag = tag;
-      updateLightsById(tag);
-    }
-  }
+  // uint32_t tag = Rfid.ReadTag();
+  // if (tag != -1)
+  // {
+  //   Serial.println(tag, HEX);
+  //   if (tag != lastTag)
+  //   {
+  //     lastTag = tag;
+  //     updateLightsById(tag);
+  //   }
+  // }
 }
+ uint32_t data=Rfid.ReadTag(6);
+ if(data!=0){
+  Serial.printf("%x\n",data);
+ }
 }
 
