@@ -21,6 +21,7 @@ BLEServer *pServer;
 BLEService *pService;
 BLECharacteristic *RxCharacteristic;
 BLECharacteristic *TxtifyCharacteristic;
+BLEAdvertising *pAdvertising;
 bool bleDeviceConnected = false;
 bool bleOldDeviceConnected = false;
 const char *ssid = "Kyber Nexus";
@@ -89,6 +90,13 @@ Commands
 
 }
 
+
+//example write 0x0C803000
+{
+  message_type:"write_kyber"
+  data:209727488,
+  interval: 0
+}
 */
 
 class MyServerCallbacks : public BLEServerCallbacks
@@ -218,34 +226,73 @@ void startOTA()
 }
 void startBle()
 {
-  ESP_LOGI(TAG, "Starting BLE");
-  pServer = BLEDevice::createServer();
-  pService = pServer->createService(CONTROL_SERVICE_UUID);
-  pServer->setCallbacks(new MyServerCallbacks());
-  RxCharacteristic = pService->createCharacteristic(
-      RX_CHARACTERISTIC_UUID,
-      BLECharacteristic::PROPERTY_READ |
-          BLECharacteristic::PROPERTY_WRITE);
+    BLEDevice::init("Long name works now");
+  BLEServer *pServer = BLEDevice::createServer();
+   pServer->setCallbacks(new MyServerCallbacks());
 
+  BLEService *pService = pServer->createService(CONTROL_SERVICE_UUID);
+  RxCharacteristic = pService->createCharacteristic(
+                                         RX_CHARACTERISTIC_UUID,
+                                         BLECharacteristic::PROPERTY_READ |
+                                         BLECharacteristic::PROPERTY_WRITE
+                                       );
   TxtifyCharacteristic = pService->createCharacteristic(
       TX_CHARACTERISTIC_UUID,
       BLECharacteristic::PROPERTY_READ | BLECharacteristic::PROPERTY_INDICATE);
-  BLEDescriptor *RxDescription = new BLEDescriptor((uint16_t)0x2901); // Characteristic User Description
-  RxDescription->setValue("Write this to send data");
-
-  BLEDescriptor *NotifyDescripton = new BLE2902(); // Characteristic User Description
+        BLEDescriptor *NotifyDescripton = new BLE2902(); // Characteristic User Description
   TxtifyCharacteristic->addDescriptor(NotifyDescripton);
-  RxCharacteristic->setCallbacks(new RxCallback());
+  RxCharacteristic->setValue("");
+   RxCharacteristic->setCallbacks(new RxCallback());
+
+  //TxtifyCharacteristic->setValue("");
   pService->start();
   // BLEAdvertising *pAdvertising = pServer->getAdvertising();  // this still is working for backward compatibility
   BLEAdvertising *pAdvertising = BLEDevice::getAdvertising();
   pAdvertising->addServiceUUID(CONTROL_SERVICE_UUID);
   pAdvertising->setScanResponse(true);
-  pAdvertising->setMinPreferred(0x06); // functions that help with iPhone connections issue
+  pAdvertising->setMinPreferred(0x06);  // functions that help with iPhone connections issue
   pAdvertising->setMinPreferred(0x12);
   BLEDevice::startAdvertising();
-  ESP_LOGI(TAG, "BLE started");
-}
+
+//   BLEDevice::init(DEVICE_NAME);
+
+//   ESP_LOGI(TAG, "Starting BLE");
+//   pServer = BLEDevice::createServer();
+//   ESP_LOGI(TAG, "Created BLE server");
+
+//   pService = pServer->createService(CONTROL_SERVICE_UUID);
+//   ESP_LOGI(TAG, "Created BLE service");
+
+//   ESP_LOGI(TAG, "set server callbacks");
+
+//   RxCharacteristic = pService->createCharacteristic(
+//       RX_CHARACTERISTIC_UUID,
+//       BLECharacteristic::PROPERTY_READ |
+//           BLECharacteristic::PROPERTY_WRITE);
+
+//   TxtifyCharacteristic = pService->createCharacteristic(
+//       TX_CHARACTERISTIC_UUID,
+//       BLECharacteristic::PROPERTY_READ | BLECharacteristic::PROPERTY_INDICATE);
+//   BLEDescriptor *RxDescription = new BLEDescriptor((uint16_t)0x2901); // Characteristic User Description
+//   RxDescription->setValue("WriteMe");
+
+//   BLEDescriptor *NotifyDescripton = new BLE2902(); // Characteristic User Description
+//  TxtifyCharacteristic->addDescriptor(NotifyDescripton);
+//   ESP_LOGI(TAG, "created charaateristics");
+
+//   pService->start();
+//   ESP_LOGI(TAG, "servuce started");
+
+//   // BLEAdvertising *pAdvertising = pServer->getAdvertising();  // this still is working for backward compatibility
+//   pAdvertising = BLEDevice::getAdvertising();
+//   pAdvertising->addServiceUUID(CONTROL_SERVICE_UUID);
+//   //pAdvertising->setScanResponse(true);
+//   //pAdvertising->setMinPreferred(0x06); // functions that help with iPhone connections issue
+//   //pAdvertising->setMinPreferred(0x12);
+//   BLEDevice::startAdvertising();
+
+//   ESP_LOGI(TAG, "BLE started");
+ }
 void setWifILights(byte r, byte g, byte b)
 {
   for (auto &light : LightsController.DiscoveredLights())
@@ -372,7 +419,13 @@ void handleLightDiscovery()
     lastDiscovery = millis();
   }
 }
-
+void sendBleResponse(const char * message){
+  if(bleDeviceConnected){
+    ESP_LOGI(TAG,"INDICATING BLE");
+    TxtifyCharacteristic->setValue(message);
+    TxtifyCharacteristic->indicate();
+  }
+}
 void readRfid()
 {
     ESP_LOGI(TAG,"read rifd");
@@ -388,20 +441,21 @@ void readRfid()
     doc["error"] = false;
     String message;
     serializeJson(doc, message);
-    TxtifyCharacteristic->setValue(message.c_str());
-    TxtifyCharacteristic->indicate();
+    //sendBleResponse(message.c_str());
+    sendBleResponse("{test:test,:Tester:tester,asdfasdfgsdf:adfasdfasff}");
   }
 }
 void readKyber()
 {
-    ESP_LOGI(TAG,"read kyber");
+    //ESP_LOGI(TAG,"read kyber");
 
   uint32_t data = 0;
   data = Rfid.ReadTag(readAddress);
-    ESP_LOGI(TAG,"read value: %x",data);
 
   if (data != 0)
   {
+    ESP_LOGI(TAG,"read value: %x",data);
+
     DynamicJsonDocument doc(1024);
     doc["message_type"] = "response";
     doc["response_of"] = "read";
@@ -409,8 +463,7 @@ void readKyber()
     doc["error"] = false;
     String message;
     serializeJson(doc, message);
-    TxtifyCharacteristic->setValue(message.c_str());
-    TxtifyCharacteristic->indicate();
+    sendBleResponse(message.c_str());
     updateLightsById(data);
   }
   
@@ -439,8 +492,7 @@ void writeKyber()
     doc["error"] = false;
     String message;
     serializeJson(doc, message);
-    TxtifyCharacteristic->setValue(message.c_str());
-    TxtifyCharacteristic->indicate();
+    sendBleResponse(message.c_str());
   }else{
     DynamicJsonDocument doc(1024);
     doc["message_type"] = "response";
@@ -448,8 +500,7 @@ void writeKyber()
     doc["error"] = true;
     String message;
     serializeJson(doc, message);
-    TxtifyCharacteristic->setValue(message.c_str());
-    TxtifyCharacteristic->indicate();
+    sendBleResponse(message.c_str());
   }
 }
 void writeRfid()
@@ -472,8 +523,7 @@ void writeRfid()
     doc["error"] = false;
     String message;
     serializeJson(doc, message);
-    TxtifyCharacteristic->setValue(message.c_str());
-    TxtifyCharacteristic->indicate();
+    sendBleResponse(message.c_str());
   }else{
     DynamicJsonDocument doc(1024);
     doc["message_type"] = "response";
@@ -481,8 +531,7 @@ void writeRfid()
     doc["error"] = true;
     String message;
     serializeJson(doc, message);
-    TxtifyCharacteristic->setValue(message.c_str());
-    TxtifyCharacteristic->indicate();
+    sendBleResponse(message.c_str());
   }
 }
 void disableRfid()
@@ -492,8 +541,8 @@ void disableRfid()
 
 void handleRfid()
 {
-  if(millis()-rfid_interval_tracker_ms>(interval*1000)){
-    ESP_LOGI(TAG,"handle rfid");
+  //if(millis()-rfid_interval_tracker_ms>(interval*1000)){
+//    ESP_LOGI(TAG,"handle rfid");
   switch (mode)
   {
   case read_rfid:
@@ -516,15 +565,17 @@ void handleRfid()
     interval=42949; // zero is run once set it big after it runs 
   }
   interval;
-  rfid_interval_tracker_ms=millis();
+ // rfid_interval_tracker_ms=millis();
 
   }
 
-}
+//}
 void setup()
 {
+
   Rfid.Init();
 
+  startBle();
   Serial.begin(115200);
   // ESP_LOGI(TAG, "Setting AP (%s)…", ssid);
   //  if (WiFi.softAP(ssid, password))
@@ -546,11 +597,12 @@ void setup()
   //   ESP.restart();
   // }
   Serial.begin(115200);
-  delay(100);
   Rfid.Enable();
 }
 void loop()
 {
+  delay(50);
+
     handleRfid();
     //ArduinoOTA.handle();
     if(ledDiscoveryNeeded){
