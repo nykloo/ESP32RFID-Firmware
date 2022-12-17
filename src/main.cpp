@@ -2,12 +2,15 @@
 #include <WiFi.h>
 #include <ESPmDNS.h>
 #include <WiFiUdp.h>
+#include <WiFi.h>
+#include <AsyncTCP.h>
+#include <ESPAsyncWebServer.h>
 #include <ArduinoOTA.h>
 #include <ArduinoJson.h>
-#include <BLEDevice.h>
-#include <BLEUtils.h>
-#include <BLEServer.h>
-#include <BLE2902.h>
+//#include <BLEDevice.h>
+//#include <BLEUtils.h>
+//#include <BLEServer.h>
+//#include <BLE2902.h>
 #include <MagicHome.h>
 #include <Rfid.h>
 #include <Adafruit_NeoPixel.h>
@@ -17,15 +20,17 @@
 #define RX_CHARACTERISTIC_UUID "65b41553-acb3-4321-96d6-a2958cd3920f"
 #define TX_CHARACTERISTIC_UUID "2ac96011-6181-447d-b4e7-1ae6c8394e59"
 #define DEVICE_NAME "x-wing"
-BLEServer *pServer;
-BLEService *pService;
-BLECharacteristic *RxCharacteristic;
-BLECharacteristic *TxtifyCharacteristic;
-BLEAdvertising *pAdvertising;
+// BLEServer *pServer;
+// BLEService *pService;
+// BLECharacteristic *RxCharacteristic;
+// BLECharacteristic *TxtifyCharacteristic;
+// BLEAdvertising *pAdvertising;
 bool bleDeviceConnected = false;
 bool bleOldDeviceConnected = false;
 const char *ssid = "Kyber Nexus";
 const char *password = "123456789";
+AsyncWebServer server(80);
+AsyncWebSocket ws("/ws");
 const char *TAG = "MAIN";
 const int lightDiscovreyInterval = 120 * 1000;
 int lastDiscovery = 0;
@@ -47,7 +52,6 @@ volatile Mode mode = read_kyber;
 volatile uint32_t writeData = 0x3E183000;
 volatile uint32_t readAddress = 6;
 volatile uint32_t writeAddress = 6;
-volatile uint32_t interval = 5;
 uint rfid_interval_tracker_ms=0;
 
 /*
@@ -56,19 +60,16 @@ Commands
 {
   message_type:"read",
   address:int(1-15),
-  interval: int, seconds //default 0 reads once never repeats
 }
 //reads address 6 and set lights to match kybers
 {
   message_type:"read_kyber"
-  interval: int, seconds //default 0 reads once never repeats
 
 }
 {
   message_type:"write"
   address:int(1-15),
   data:uint32,
-  interval: int, seconds //default 0 writes once never repeats
 }
 //reads current value if not equal to data
 //writes 0x1ff header to address 5 and data to 6
@@ -76,7 +77,6 @@ Commands
 {
   message_type:"write_kyber"
   data:uint32,
-  interval: int, seconds //default 0 writes once never repeats
 }
 {
   message_type: "disable_rfid",
@@ -95,79 +95,74 @@ Commands
 {
   message_type:"write_kyber"
   data:209727488,
-  interval: 0
 }
 */
 
-class MyServerCallbacks : public BLEServerCallbacks
-{
-  void onConnect(BLEServer *pServer)
-  {
-    bleDeviceConnected = true;
-  };
+// class MyServerCallbacks : public BLEServerCallbacks
+// {
+//   void onConnect(BLEServer *pServer)
+//   {
+//     bleDeviceConnected = true;
+//   };
 
-  void onDisconnect(BLEServer *pServer)
-  {
-    bleDeviceConnected = false;
-  }
-};
-class RxCallback : public BLECharacteristicCallbacks
-{
-  void onWrite(BLECharacteristic *pCharacteristic)
-  {
-    std::string rxValue = pCharacteristic->getValue();
-    // read data as byte pCharacteristic->getData() pCharacteristic instead of   pCharacteristic->getValue();
-    if (rxValue.length() > 0)
-    {
-      Serial.println("*********");
-      Serial.print("Characteristic Uuid ");
-      std::string id = pCharacteristic->getUUID().toString();
-      for (int i = 0; i < id.length(); i++)
-        Serial.print(id[i]);
+//   void onDisconnect(BLEServer *pServer)
+//   {
+//     bleDeviceConnected = false;
+//   }
+// };
+// class RxCallback : public BLECharacteristicCallbacks
+// {
+//   void onWrite(BLECharacteristic *pCharacteristic)
+//   {
+//     std::string rxValue = pCharacteristic->getValue();
+//     // read data as byte pCharacteristic->getData() pCharacteristic instead of   pCharacteristic->getValue();
+//     if (rxValue.length() > 0)
+//     {
+//       Serial.println("*********");
+//       Serial.print("Characteristic Uuid ");
+//       std::string id = pCharacteristic->getUUID().toString();
+//       for (int i = 0; i < id.length(); i++)
+//         Serial.print(id[i]);
 
-      Serial.print("Received Value: ");
-      for (int i = 0; i < rxValue.length(); i++)
-        Serial.print(rxValue[i]);
+//       Serial.print("Received Value: ");
+//       for (int i = 0; i < rxValue.length(); i++)
+//         Serial.print(rxValue[i]);
 
-      Serial.println();
-      Serial.println("*********");
-      DynamicJsonDocument doc(512);
-      deserializeJson(doc, rxValue);
+//       Serial.println();
+//       Serial.println("*********");
+//       DynamicJsonDocument doc(512);
+//       deserializeJson(doc, rxValue);
 
-      const char *message_type = doc["message_type"];
-      String message_type_s = String(message_type);
+//       const char *message_type = doc["message_type"];
+//       String message_type_s = String(message_type);
 
-      if (message_type_s = "read")
-      {
-        readAddress = doc["address"];
-        interval = doc["interval"];
-        mode = read_rfid;
-      }
-      if (message_type_s = "read_kyber")
-      {
-        readAddress = doc["address"];
-        interval = doc["interval"];
-        mode = read_kyber;
-      }
-      if (message_type_s = "write")
-      {
-        interval = doc["interval"];
-        writeData = doc["data"];
-        mode = write_rfid;
-      }
-      if (message_type_s = "write_kyber")
-      {
-        interval = doc["interval"];
-        writeData = doc["data"];
-        mode = write_kyber;
-      }
-      if (message_type_s = "disable_rfid")
-      {
-        mode = disable_rfid;
-      }
-    }
-  }
-};
+//       if (message_type_s = "read")
+//       {
+//         readAddress = doc["address"];
+//         mode = read_rfid;
+//       }
+//       if (message_type_s = "read_kyber")
+//       {
+//         readAddress = doc["address"];
+//         mode = read_kyber;
+//       }
+//       if (message_type_s = "write")
+//       {
+//         writeData = doc["data"];
+//         mode = write_rfid;
+//       }
+//       if (message_type_s = "write_kyber")
+//       {
+//         writeData = doc["data"];
+//         mode = write_kyber;
+//       }
+//       if (message_type_s = "disable_rfid")
+//       {
+//         mode = disable_rfid;
+//       }
+//     }
+//   }
+// };
 void setColor(byte r, byte g, byte b)
 {
   for (int i = 0; i < LED_COUNT; i++)
@@ -224,75 +219,37 @@ void startOTA()
       else if (error == OTA_END_ERROR) ESP_LOGI(TAG,"End Failed"); });
   ArduinoOTA.begin();
 }
-void startBle()
-{
-    BLEDevice::init("Long name works now");
-  BLEServer *pServer = BLEDevice::createServer();
-   pServer->setCallbacks(new MyServerCallbacks());
+// void startBle()
+// {
+//     BLEDevice::init("ESP32");
+//   BLEServer *pServer = BLEDevice::createServer();
+//    pServer->setCallbacks(new MyServerCallbacks());
 
-  BLEService *pService = pServer->createService(CONTROL_SERVICE_UUID);
-  RxCharacteristic = pService->createCharacteristic(
-                                         RX_CHARACTERISTIC_UUID,
-                                         BLECharacteristic::PROPERTY_READ |
-                                         BLECharacteristic::PROPERTY_WRITE
-                                       );
-  TxtifyCharacteristic = pService->createCharacteristic(
-      TX_CHARACTERISTIC_UUID,
-      BLECharacteristic::PROPERTY_READ | BLECharacteristic::PROPERTY_INDICATE);
-        BLEDescriptor *NotifyDescripton = new BLE2902(); // Characteristic User Description
-  TxtifyCharacteristic->addDescriptor(NotifyDescripton);
-  RxCharacteristic->setValue("");
-   RxCharacteristic->setCallbacks(new RxCallback());
-
-  //TxtifyCharacteristic->setValue("");
-  pService->start();
-  // BLEAdvertising *pAdvertising = pServer->getAdvertising();  // this still is working for backward compatibility
-  BLEAdvertising *pAdvertising = BLEDevice::getAdvertising();
-  pAdvertising->addServiceUUID(CONTROL_SERVICE_UUID);
-  pAdvertising->setScanResponse(true);
-  pAdvertising->setMinPreferred(0x06);  // functions that help with iPhone connections issue
-  pAdvertising->setMinPreferred(0x12);
-  BLEDevice::startAdvertising();
-
-//   BLEDevice::init(DEVICE_NAME);
-
-//   ESP_LOGI(TAG, "Starting BLE");
-//   pServer = BLEDevice::createServer();
-//   ESP_LOGI(TAG, "Created BLE server");
-
-//   pService = pServer->createService(CONTROL_SERVICE_UUID);
-//   ESP_LOGI(TAG, "Created BLE service");
-
-//   ESP_LOGI(TAG, "set server callbacks");
-
+//   BLEService *pService = pServer->createService(CONTROL_SERVICE_UUID);
 //   RxCharacteristic = pService->createCharacteristic(
-//       RX_CHARACTERISTIC_UUID,
-//       BLECharacteristic::PROPERTY_READ |
-//           BLECharacteristic::PROPERTY_WRITE);
-
+//                                          RX_CHARACTERISTIC_UUID,
+//                                          BLECharacteristic::PROPERTY_READ |
+//                                          BLECharacteristic::PROPERTY_WRITE
+//                                        );
 //   TxtifyCharacteristic = pService->createCharacteristic(
 //       TX_CHARACTERISTIC_UUID,
 //       BLECharacteristic::PROPERTY_READ | BLECharacteristic::PROPERTY_INDICATE);
-//   BLEDescriptor *RxDescription = new BLEDescriptor((uint16_t)0x2901); // Characteristic User Description
-//   RxDescription->setValue("WriteMe");
+//         BLEDescriptor *NotifyDescripton = new BLE2902(); // Characteristic User Description
+//   TxtifyCharacteristic->addDescriptor(NotifyDescripton);
+//   RxCharacteristic->setValue("");
+//    RxCharacteristic->setCallbacks(new RxCallback());
 
-//   BLEDescriptor *NotifyDescripton = new BLE2902(); // Characteristic User Description
-//  TxtifyCharacteristic->addDescriptor(NotifyDescripton);
-//   ESP_LOGI(TAG, "created charaateristics");
-
+//   //TxtifyCharacteristic->setValue("");
 //   pService->start();
-//   ESP_LOGI(TAG, "servuce started");
-
 //   // BLEAdvertising *pAdvertising = pServer->getAdvertising();  // this still is working for backward compatibility
-//   pAdvertising = BLEDevice::getAdvertising();
+//   BLEAdvertising *pAdvertising = BLEDevice::getAdvertising();
 //   pAdvertising->addServiceUUID(CONTROL_SERVICE_UUID);
-//   //pAdvertising->setScanResponse(true);
-//   //pAdvertising->setMinPreferred(0x06); // functions that help with iPhone connections issue
-//   //pAdvertising->setMinPreferred(0x12);
+//   pAdvertising->setScanResponse(true);
+//   pAdvertising->setMinPreferred(0x06);  // functions that help with iPhone connections issue
+//   pAdvertising->setMinPreferred(0x12);
 //   BLEDevice::startAdvertising();
 
-//   ESP_LOGI(TAG, "BLE started");
- }
+//  }
 void setWifILights(byte r, byte g, byte b)
 {
   for (auto &light : LightsController.DiscoveredLights())
@@ -419,13 +376,13 @@ void handleLightDiscovery()
     lastDiscovery = millis();
   }
 }
-void sendBleResponse(const char * message){
-  if(bleDeviceConnected){
-    ESP_LOGI(TAG,"INDICATING BLE");
-    TxtifyCharacteristic->setValue(message);
-    TxtifyCharacteristic->indicate();
-  }
-}
+// void sendBleResponse(const char * message){
+//   if(bleDeviceConnected){
+//     ESP_LOGI(TAG,"INDICATING BLE");
+//     TxtifyCharacteristic->setValue(message);
+//     TxtifyCharacteristic->indicate();
+//   }
+// }
 void readRfid()
 {
     ESP_LOGI(TAG,"read rifd");
@@ -442,7 +399,8 @@ void readRfid()
     String message;
     serializeJson(doc, message);
     //sendBleResponse(message.c_str());
-    sendBleResponse("{test:test,:Tester:tester,asdfasdfgsdf:adfasdfasff}");
+    ws.textAll(message);
+    //sendBleResponse("{test:test,:Tester:tester,asdfasdfgsdf:adfasdfasff}");
   }
 }
 void readKyber()
@@ -450,7 +408,7 @@ void readKyber()
     //ESP_LOGI(TAG,"read kyber");
 
   uint32_t data = 0;
-  data = Rfid.ReadTag(readAddress);
+  data = Rfid.ReadTag(0x06);
 
   if (data != 0)
   {
@@ -463,7 +421,8 @@ void readKyber()
     doc["error"] = false;
     String message;
     serializeJson(doc, message);
-    sendBleResponse(message.c_str());
+    ws.textAll(message);
+    //sendBleResponse(message.c_str());
     updateLightsById(data);
   }
   
@@ -492,7 +451,12 @@ void writeKyber()
     doc["error"] = false;
     String message;
     serializeJson(doc, message);
-    sendBleResponse(message.c_str());
+    ws.textAll(message);
+    updateLightsById(writeData);
+    delay(1000);
+    setColor(10,10,10);
+
+    //sendBleResponse(message.c_str());
   }else{
     DynamicJsonDocument doc(1024);
     doc["message_type"] = "response";
@@ -500,7 +464,9 @@ void writeKyber()
     doc["error"] = true;
     String message;
     serializeJson(doc, message);
-    sendBleResponse(message.c_str());
+    ws.textAll(message);
+
+   // sendBleResponse(message.c_str());
   }
 }
 void writeRfid()
@@ -523,7 +489,9 @@ void writeRfid()
     doc["error"] = false;
     String message;
     serializeJson(doc, message);
-    sendBleResponse(message.c_str());
+    ws.textAll(message);
+
+    //sendBleResponse(message.c_str());
   }else{
     DynamicJsonDocument doc(1024);
     doc["message_type"] = "response";
@@ -531,7 +499,9 @@ void writeRfid()
     doc["error"] = true;
     String message;
     serializeJson(doc, message);
-    sendBleResponse(message.c_str());
+    ws.textAll(message);
+
+   // sendBleResponse(message.c_str());
   }
 }
 void disableRfid()
@@ -541,8 +511,7 @@ void disableRfid()
 
 void handleRfid()
 {
-  //if(millis()-rfid_interval_tracker_ms>(interval*1000)){
-//    ESP_LOGI(TAG,"handle rfid");
+
   switch (mode)
   {
   case read_rfid:
@@ -561,42 +530,111 @@ void handleRfid()
     disableRfid();
     break;
   }
-  if(interval==0){
-    interval=42949; // zero is run once set it big after it runs 
-  }
-  interval;
- // rfid_interval_tracker_ms=millis();
+
 
   }
 
-//}
+void notifyClients() {
+ // ws.textAll(String(ledState));
+}
+void handleWebSocketMessage(void *arg, uint8_t *data, size_t len) {
+  AwsFrameInfo *info = (AwsFrameInfo*)arg;
+  if (info->final && info->index == 0 && info->len == len && info->opcode == WS_TEXT) {
+    data[len] = 0;
+     DynamicJsonDocument doc(512);
+      deserializeJson(doc, (char*)data);
+
+      const char *message_type = doc["message_type"];
+      String message_type_s = String(message_type);
+
+      if (message_type_s == "read")
+      {
+        readAddress = doc["address"];
+        ESP_LOGI(TAG,"Start read rfid");
+        mode = read_rfid;
+      }else
+      if (message_type_s == "read_kyber")
+      {
+        readAddress = doc["address"];
+        ESP_LOGI(TAG,"Start read kyber");
+        mode = read_kyber;
+      }else
+      if (message_type_s == "write")
+      {
+        writeData = doc["data"];
+        ESP_LOGI(TAG,"Start write rfid");
+        mode = write_rfid;
+      }else
+      if (message_type_s == "write_kyber")
+      {
+        writeData = doc["data"];
+        ESP_LOGI(TAG,"Start write kyber");
+        mode = write_kyber;
+      }else
+      if (message_type_s == "disable_rfid")
+      {
+        ESP_LOGI(TAG,"disable rfid");
+        mode = disable_rfid;
+      }else{
+        ESP_LOGI(TAG, "unknown message");
+        String message;
+        serializeJson(doc, message);
+        Serial.print(message);
+
+      }
+  }
+}
+void onWsEvent(AsyncWebSocket * server, AsyncWebSocketClient * client, AwsEventType type, void * arg, uint8_t *data, size_t len){
+    switch (type) {
+    case WS_EVT_CONNECT:
+      Serial.printf("WebSocket client #%u connected from %s\n", client->id(), client->remoteIP().toString().c_str());
+      client->text("Hello from ESP32 Server");
+      break;
+    case WS_EVT_DISCONNECT:
+      Serial.printf("WebSocket client #%u disconnected\n", client->id());
+      break;
+    case WS_EVT_DATA:
+      handleWebSocketMessage(arg, data, len);
+      break;
+    case WS_EVT_PONG:
+    case WS_EVT_ERROR:
+      break;
+  }
+}
+void setupWifiAP(){
+    ESP_LOGI(TAG, "Setting AP (%s)…", ssid);
+   if (WiFi.softAP(ssid, password))
+   {
+     ESP_LOGI(TAG, "Setup AP %s.", ssid);
+     IPAddress IP = WiFi.softAPIP();
+     ESP_LOGI(TAG, "AP IP %s.", IP.toString());
+     startOTA();
+     LightsController.Init();
+    ws.onEvent(onWsEvent);
+    server.addHandler(&ws);
+    server.begin();
+
+     delay(10000);
+     //WiFi.onEvent(deviceConnected,ARDUINO_EVENT_WIFI_AP_STAIPASSIGNED);
+     //LightsController.DiscoverLights();
+
+  }
+  else
+  {
+    ESP_LOGE(TAG, "Failed To Setup AP (%s)!", ssid);
+    delay(5000);
+    ESP.restart();
+  }
+}
 void setup()
 {
 
+  setColor(10,10,10);
   Rfid.Init();
 
-  startBle();
+  //startBle();
   Serial.begin(115200);
-  // ESP_LOGI(TAG, "Setting AP (%s)…", ssid);
-  //  if (WiFi.softAP(ssid, password))
-  //  {
-  //    ESP_LOGI(TAG, "Setup AP %s.", ssid);
-  //    IPAddress IP = WiFi.softAPIP();
-  //    ESP_LOGI(TAG, "AP IP %s.", IP.toString());
-  //    startOTA();
-  //    LightsController.Init();
-  //    delay(10000);
-  //    WiFi.onEvent(deviceConnected,ARDUINO_EVENT_WIFI_AP_STAIPASSIGNED);
-  //    //LightsController.DiscoverLights();
-
-  // }
-  // else
-  // {
-  //   ESP_LOGE(TAG, "Failed To Setup AP (%s)!", ssid);
-  //   delay(5000);
-  //   ESP.restart();
-  // }
-  Serial.begin(115200);
+setupWifiAP();
   Rfid.Enable();
 }
 void loop()
@@ -604,9 +642,10 @@ void loop()
   delay(50);
 
     handleRfid();
-    //ArduinoOTA.handle();
+    ArduinoOTA.handle();
     if(ledDiscoveryNeeded){
     LightsController.DiscoverLights();
     ledDiscoveryNeeded=false;
     }
+    ws.cleanupClients(3);
 }
