@@ -7,24 +7,13 @@
 #include <ESPAsyncWebServer.h>
 #include <ArduinoOTA.h>
 #include <ArduinoJson.h>
-//#include <BLEDevice.h>
-//#include <BLEUtils.h>
-//#include <BLEServer.h>
-//#include <BLE2902.h>
 #include <MagicHome.h>
 #include <Rfid.h>
 #include <Adafruit_NeoPixel.h>
 #define LED_PIN 14
 #define LED_COUNT 14
-#define CONTROL_SERVICE_UUID "e63d24ed-6bc9-483a-b8ca-54a4ac05643f"
-#define RX_CHARACTERISTIC_UUID "65b41553-acb3-4321-96d6-a2958cd3920f"
-#define TX_CHARACTERISTIC_UUID "2ac96011-6181-447d-b4e7-1ae6c8394e59"
 #define DEVICE_NAME "x-wing"
-// BLEServer *pServer;
-// BLEService *pService;
-// BLECharacteristic *RxCharacteristic;
-// BLECharacteristic *TxtifyCharacteristic;
-// BLEAdvertising *pAdvertising;
+
 bool bleDeviceConnected = false;
 bool bleOldDeviceConnected = false;
 const char *ssid = "Kyber Nexus";
@@ -54,115 +43,6 @@ volatile uint32_t readAddress = 6;
 volatile uint32_t writeAddress = 6;
 uint rfid_interval_tracker_ms=0;
 
-/*
-Commands
-//reads a value from an address
-{
-  message_type:"read",
-  address:int(1-15),
-}
-//reads address 6 and set lights to match kybers
-{
-  message_type:"read_kyber"
-
-}
-{
-  message_type:"write"
-  address:int(1-15),
-  data:uint32,
-}
-//reads current value if not equal to data
-//writes 0x1ff header to address 5 and data to 6
-//reads to verify
-{
-  message_type:"write_kyber"
-  data:uint32,
-}
-{
-  message_type: "disable_rfid",
-}
-//
-{
-  message_type: "response",
-  response_of:{initiateing message type},
-  data: uint32,optional
-  error: boolean
-
-}
-
-
-//example write 0x0C803000
-{
-  message_type:"write_kyber"
-  data:209727488,
-}
-*/
-
-// class MyServerCallbacks : public BLEServerCallbacks
-// {
-//   void onConnect(BLEServer *pServer)
-//   {
-//     bleDeviceConnected = true;
-//   };
-
-//   void onDisconnect(BLEServer *pServer)
-//   {
-//     bleDeviceConnected = false;
-//   }
-// };
-// class RxCallback : public BLECharacteristicCallbacks
-// {
-//   void onWrite(BLECharacteristic *pCharacteristic)
-//   {
-//     std::string rxValue = pCharacteristic->getValue();
-//     // read data as byte pCharacteristic->getData() pCharacteristic instead of   pCharacteristic->getValue();
-//     if (rxValue.length() > 0)
-//     {
-//       Serial.println("*********");
-//       Serial.print("Characteristic Uuid ");
-//       std::string id = pCharacteristic->getUUID().toString();
-//       for (int i = 0; i < id.length(); i++)
-//         Serial.print(id[i]);
-
-//       Serial.print("Received Value: ");
-//       for (int i = 0; i < rxValue.length(); i++)
-//         Serial.print(rxValue[i]);
-
-//       Serial.println();
-//       Serial.println("*********");
-//       DynamicJsonDocument doc(512);
-//       deserializeJson(doc, rxValue);
-
-//       const char *message_type = doc["message_type"];
-//       String message_type_s = String(message_type);
-
-//       if (message_type_s = "read")
-//       {
-//         readAddress = doc["address"];
-//         mode = read_rfid;
-//       }
-//       if (message_type_s = "read_kyber")
-//       {
-//         readAddress = doc["address"];
-//         mode = read_kyber;
-//       }
-//       if (message_type_s = "write")
-//       {
-//         writeData = doc["data"];
-//         mode = write_rfid;
-//       }
-//       if (message_type_s = "write_kyber")
-//       {
-//         writeData = doc["data"];
-//         mode = write_kyber;
-//       }
-//       if (message_type_s = "disable_rfid")
-//       {
-//         mode = disable_rfid;
-//       }
-//     }
-//   }
-// };
 void setColor(byte r, byte g, byte b)
 {
   for (int i = 0; i < LED_COUNT; i++)
@@ -395,6 +275,7 @@ void readRfid()
     doc["message_type"] = "response";
     doc["response_of"] = "read";
     doc["data"] = data;
+    doc["address"] = readAddress;
     doc["error"] = false;
     String message;
     serializeJson(doc, message);
@@ -416,7 +297,7 @@ void readKyber()
 
     DynamicJsonDocument doc(1024);
     doc["message_type"] = "response";
-    doc["response_of"] = "read";
+    doc["response_of"] = "read_kyber";
     doc["data"] = data;
     doc["error"] = false;
     String message;
@@ -460,12 +341,17 @@ void writeKyber()
   }else{
     DynamicJsonDocument doc(1024);
     doc["message_type"] = "response";
-    doc["response_of"] = "write";
+    doc["response_of"] = "write_kyber";
     doc["error"] = true;
     String message;
     serializeJson(doc, message);
     ws.textAll(message);
-
+    delay(300);
+    setColor(255,10,10);
+    delay(300);
+    setColor(0,0,0);
+    delay(300);
+    setColor(127,10,10);
    // sendBleResponse(message.c_str());
   }
 }
@@ -486,6 +372,7 @@ void writeRfid()
     DynamicJsonDocument doc(1024);
     doc["message_type"] = "response";
     doc["response_of"] = "write";
+    doc["address"] = writeAddress;
     doc["error"] = false;
     String message;
     serializeJson(doc, message);
@@ -539,14 +426,14 @@ void notifyClients() {
 }
 void handleWebSocketMessage(void *arg, uint8_t *data, size_t len) {
   AwsFrameInfo *info = (AwsFrameInfo*)arg;
+        ESP_LOGI(TAG,"got ws message");
+
   if (info->final && info->index == 0 && info->len == len && info->opcode == WS_TEXT) {
     data[len] = 0;
      DynamicJsonDocument doc(512);
       deserializeJson(doc, (char*)data);
-
       const char *message_type = doc["message_type"];
       String message_type_s = String(message_type);
-
       if (message_type_s == "read")
       {
         readAddress = doc["address"];
