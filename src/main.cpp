@@ -7,6 +7,7 @@
 #include <ESPAsyncWebServer.h>
 #include <ArduinoOTA.h>
 #include <ArduinoJson.h>
+#include <Preferences.h>
 #include <MagicHome.h>
 #include <Rfid.h>
 #include <Adafruit_NeoPixel.h>
@@ -16,8 +17,9 @@
 
 bool bleDeviceConnected = false;
 bool bleOldDeviceConnected = false;
-const char *ssid = "Kyber Nexus";
-const char *password = "123456789";
+String ssid;     
+String password; 
+bool is_ap;
 AsyncWebServer server(80);
 AsyncWebSocket ws("/ws");
 const char *TAG = "MAIN";
@@ -27,6 +29,7 @@ volatile bool ledDiscoveryNeeded = false;
 MagicHome LightsController;
 Adafruit_NeoPixel pixels = Adafruit_NeoPixel(LED_COUNT, LED_PIN, NEO_GRB + NEO_KHZ800);
 Rfid Rfid;
+Preferences preferences;
 
 enum Mode
 {
@@ -41,8 +44,46 @@ volatile Mode mode = read_kyber;
 volatile uint32_t writeData = 0x3E183000;
 volatile uint32_t readAddress = 6;
 volatile uint32_t writeAddress = 6;
-uint rfid_interval_tracker_ms=0;
-
+uint rfid_interval_tracker_ms = 0;
+void restoreSettings()
+{
+  while (!preferences.begin("rfid-reader", false))
+  {
+    delay(100);
+    ESP_LOGI(TAG, "Could not load settings");
+  }
+  //preferences.clear();
+  Serial.print(preferences.isKey("ssid"));
+  if (preferences.isKey("ssid"))
+  {
+    ssid = preferences.getString("ssid");
+  }
+  else
+  {
+    ssid = "ESP32 RFID";
+  }
+  if (preferences.isKey("password"))
+  {
+    password = preferences.getString("password");
+  }
+  else
+  {
+    password = "123456789";
+  }
+  if (preferences.isKey("is_ap"))
+  {
+    is_ap = preferences.getBool("is_ap");
+  }
+  else
+  {
+    is_ap = true;
+  }
+  preferences.end();
+  ESP_LOGI(TAG, "ssid: %s", ssid);
+  // ESP_LOGI(TAG,"password:",password);
+  ESP_LOGI(TAG, "is_ap: %d", is_ap);
+  delay(1000);
+}
 void setColor(byte r, byte g, byte b)
 {
   for (int i = 0; i < LED_COUNT; i++)
@@ -170,17 +211,17 @@ void updateLightsById(uint32_t id)
     setWifILights(0, 0, 255);
     setColor(0, 0, 255);
   }
-  if (id == 0x29803000) // 
+  if (id == 0x29803000) //
   {
     setWifILights(0, 0, 255);
     setColor(0, 0, 255);
   }
-  if (id == 0x6F803000) // 
+  if (id == 0x6F803000) //
   {
     setWifILights(106, 13, 173);
     setColor(106, 13, 173);
   }
-  if (id == 0x14403000) // 
+  if (id == 0x14403000) //
   {
     setWifILights(255, 255, 255);
     setColor(255, 255, 255);
@@ -220,12 +261,12 @@ void updateLightsById(uint32_t id)
     setWifILights(106, 13, 173);
     setColor(106, 13, 173);
   }
-  if (id == 0x00000C22)//?
+  if (id == 0x00000C22) //?
   {
     setWifILights(255, 255, 255);
     setColor(255, 255, 255);
   }
-  if (id == 0x00000C30)//?
+  if (id == 0x00000C30) //?
   {
     setWifILights(255, 255, 255);
     setColor(255, 255, 255);
@@ -240,7 +281,7 @@ void updateLightsById(uint32_t id)
     setWifILights(0, 255, 0);
     setColor(0, 255, 0);
   }
-  if (id == 0x00000C33)//?
+  if (id == 0x00000C33) //?
   {
     setWifILights(255, 0, 0);
     setColor(255, 0, 0);
@@ -256,16 +297,20 @@ void handleLightDiscovery()
     lastDiscovery = millis();
   }
 }
-// void sendBleResponse(const char * message){
-//   if(bleDeviceConnected){
-//     ESP_LOGI(TAG,"INDICATING BLE");
-//     TxtifyCharacteristic->setValue(message);
-//     TxtifyCharacteristic->indicate();
-//   }
-// }
+
+void showError()
+{
+  delay(300);
+  setColor(255, 10, 10);
+  delay(300);
+  setColor(0, 0, 0);
+  delay(300);
+  setColor(127, 10, 10);
+}
+
 void readRfid()
 {
-    ESP_LOGI(TAG,"read rifd");
+  ESP_LOGI(TAG, "read rifd");
 
   uint32_t data = 0;
   Rfid.ReadTag(readAddress);
@@ -279,21 +324,17 @@ void readRfid()
     doc["error"] = false;
     String message;
     serializeJson(doc, message);
-    //sendBleResponse(message.c_str());
     ws.textAll(message);
-    //sendBleResponse("{test:test,:Tester:tester,asdfasdfgsdf:adfasdfasff}");
   }
 }
 void readKyber()
 {
-    //ESP_LOGI(TAG,"read kyber");
-
   uint32_t data = 0;
   data = Rfid.ReadTag(0x06);
 
   if (data != 0)
   {
-    ESP_LOGI(TAG,"read value: %x",data);
+    ESP_LOGI(TAG, "read value: %x", data);
 
     DynamicJsonDocument doc(1024);
     doc["message_type"] = "response";
@@ -303,28 +344,31 @@ void readKyber()
     String message;
     serializeJson(doc, message);
     ws.textAll(message);
-    //sendBleResponse(message.c_str());
+    // sendBleResponse(message.c_str());
     updateLightsById(data);
   }
-  
 }
 void writeKyber()
 {
-  uint32_t dataCheck =Rfid.ReadTag(0x06);
-  uint32_t headerCheck =Rfid.ReadTag(0x05);
-  for(int i=0;i<3;i++){
-    if(dataCheck!=writeData||headerCheck!=0x1FF){
-      Rfid.EM4xWriteWord( 0x06,writeData,0,0);
+  uint32_t dataCheck = Rfid.ReadTag(0x06);
+  uint32_t headerCheck = Rfid.ReadTag(0x05);
+  for (int i = 0; i < 3; i++)
+  {
+    if (dataCheck != writeData || headerCheck != 0x1FF)
+    {
+      Rfid.EM4xWriteWord(0x06, writeData, 0, 0);
       delay(10);
-      Rfid.EM4xWriteWord( 0x05,0x1FF,0,0);
+      Rfid.EM4xWriteWord(0x05, 0x1FF, 0, 0);
       delay(10);
-      dataCheck =Rfid.ReadTag(0x06);
-      headerCheck =Rfid.ReadTag(0x05);
-    }else{
+      dataCheck = Rfid.ReadTag(0x06);
+      headerCheck = Rfid.ReadTag(0x05);
+    }
+    else
+    {
       break;
     }
   }
-  if (dataCheck==writeData&&headerCheck==0x1FF)
+  if (dataCheck == writeData && headerCheck == 0x1FF)
   {
     DynamicJsonDocument doc(1024);
     doc["message_type"] = "response";
@@ -335,10 +379,10 @@ void writeKyber()
     ws.textAll(message);
     updateLightsById(writeData);
     delay(1000);
-    setColor(10,10,10);
-
-    //sendBleResponse(message.c_str());
-  }else{
+    setColor(10, 10, 10);
+  }
+  else
+  {
     DynamicJsonDocument doc(1024);
     doc["message_type"] = "response";
     doc["response_of"] = "write_kyber";
@@ -346,24 +390,22 @@ void writeKyber()
     String message;
     serializeJson(doc, message);
     ws.textAll(message);
-    delay(300);
-    setColor(255,10,10);
-    delay(300);
-    setColor(0,0,0);
-    delay(300);
-    setColor(127,10,10);
-   // sendBleResponse(message.c_str());
+    showError();
   }
 }
 void writeRfid()
 {
-  uint32_t result =Rfid.ReadTag(writeAddress);
-  for(int i=0;i<3;i++){
-    if(result!=writeData){
-      Rfid.EM4xWriteWord( writeAddress,writeData,0,0);
+  uint32_t result = Rfid.ReadTag(writeAddress);
+  for (int i = 0; i < 3; i++)
+  {
+    if (result != writeData)
+    {
+      Rfid.EM4xWriteWord(writeAddress, writeData, 0, 0);
       delay(10);
-      result =Rfid.ReadTag(writeAddress);
-    }else{
+      result = Rfid.ReadTag(writeAddress);
+    }
+    else
+    {
       break;
     }
   }
@@ -378,8 +420,10 @@ void writeRfid()
     serializeJson(doc, message);
     ws.textAll(message);
 
-    //sendBleResponse(message.c_str());
-  }else{
+    // sendBleResponse(message.c_str());
+  }
+  else
+  {
     DynamicJsonDocument doc(1024);
     doc["message_type"] = "response";
     doc["response_of"] = "write";
@@ -388,12 +432,13 @@ void writeRfid()
     serializeJson(doc, message);
     ws.textAll(message);
 
-   // sendBleResponse(message.c_str());
+    // sendBleResponse(message.c_str());
   }
 }
 void disableRfid()
 {
   Rfid.Disable();
+  delay(20);
 }
 
 void handleRfid()
@@ -417,94 +462,124 @@ void handleRfid()
     disableRfid();
     break;
   }
-
-
-  }
-
-void notifyClients() {
- // ws.textAll(String(ledState));
 }
-void handleWebSocketMessage(void *arg, uint8_t *data, size_t len) {
-  AwsFrameInfo *info = (AwsFrameInfo*)arg;
-        ESP_LOGI(TAG,"got ws message");
 
-  if (info->final && info->index == 0 && info->len == len && info->opcode == WS_TEXT) {
+void handleWebSocketMessage(void *arg, uint8_t *data, size_t len)
+{
+  AwsFrameInfo *info = (AwsFrameInfo *)arg;
+  ESP_LOGI(TAG, "got ws message");
+
+  if (info->final && info->index == 0 && info->len == len && info->opcode == WS_TEXT)
+  {
     data[len] = 0;
-     DynamicJsonDocument doc(512);
-      deserializeJson(doc, (char*)data);
-      const char *message_type = doc["message_type"];
-      String message_type_s = String(message_type);
-      if (message_type_s == "read")
-      {
-        readAddress = doc["address"];
-        ESP_LOGI(TAG,"Start read rfid");
-        mode = read_rfid;
-      }else
-      if (message_type_s == "read_kyber")
-      {
-        readAddress = doc["address"];
-        ESP_LOGI(TAG,"Start read kyber");
-        mode = read_kyber;
-      }else
-      if (message_type_s == "write")
-      {
-        writeData = doc["data"];
-        ESP_LOGI(TAG,"Start write rfid");
-        mode = write_rfid;
-      }else
-      if (message_type_s == "write_kyber")
-      {
-        writeData = doc["data"];
-        ESP_LOGI(TAG,"Start write kyber");
-        mode = write_kyber;
-      }else
-      if (message_type_s == "disable_rfid")
-      {
-        ESP_LOGI(TAG,"disable rfid");
-        mode = disable_rfid;
-      }else{
-        ESP_LOGI(TAG, "unknown message");
-        String message;
-        serializeJson(doc, message);
-        Serial.print(message);
+    DynamicJsonDocument doc(512);
+    deserializeJson(doc, (char *)data);
+    const char *message_type = doc["message_type"];
+    String message_type_s = String(message_type);
+    if (message_type_s == "read")
+    {
+      readAddress = doc["address"];
+      ESP_LOGI(TAG, "Start read rfid");
+      mode = read_rfid;
+    }
+    else if (message_type_s == "read_kyber")
+    {
+      readAddress = doc["address"];
+      ESP_LOGI(TAG, "Start read kyber");
+      mode = read_kyber;
+    }
+    else if (message_type_s == "write")
+    {
+      writeData = doc["data"];
+      ESP_LOGI(TAG, "Start write rfid");
+      mode = write_rfid;
+    }
+    else if (message_type_s == "write_kyber")
+    {
+      writeData = doc["data"];
+      ESP_LOGI(TAG, "Start write kyber");
+      mode = write_kyber;
+    }
+    else if (message_type_s == "disable_rfid")
+    {
+      ESP_LOGI(TAG, "disable rfid");
+      mode = disable_rfid;
+    }
+    else if (message_type_s == "configure_wifi")
+    {
+      preferences.begin("rfid-reader", false);
+      const char * ssid = doc["ssid"];
+      const char * password = doc["password"];
+      bool is_ap = doc["is_ap"];
+      ESP_LOGI(TAG, "configure wifi for %s is_ap=%d", ssid, is_ap);
+      preferences.putString("ssid", ssid);
+      preferences.putString("password", password);
+      preferences.putBool("is_ap", is_ap);
+      preferences.end();
+      ESP_LOGI(TAG, "Restarting to apply wifi changes");
+      delay(500);
+      ESP.restart();
+    }
+    else if (message_type_s == "reset")
+    {
 
-      }
+      preferences.begin("rfid-reader", false);
+      ESP_LOGI(TAG, "resetting");
+      preferences.clear();
+      preferences.end();
+      ESP.restart();
+    }
+    else
+    {
+      ESP_LOGI(TAG, "unknown message");
+      String message;
+      serializeJson(doc, message);
+      Serial.print(message);
+    }
   }
 }
-void onWsEvent(AsyncWebSocket * server, AsyncWebSocketClient * client, AwsEventType type, void * arg, uint8_t *data, size_t len){
-    switch (type) {
-    case WS_EVT_CONNECT:
-      Serial.printf("WebSocket client #%u connected from %s\n", client->id(), client->remoteIP().toString().c_str());
-      client->text("Hello from ESP32 Server");
-      break;
-    case WS_EVT_DISCONNECT:
-      Serial.printf("WebSocket client #%u disconnected\n", client->id());
-      break;
-    case WS_EVT_DATA:
-      handleWebSocketMessage(arg, data, len);
-      break;
-    case WS_EVT_PONG:
-    case WS_EVT_ERROR:
-      break;
+void onWsEvent(AsyncWebSocket *server, AsyncWebSocketClient *client, AwsEventType type, void *arg, uint8_t *data, size_t len)
+{
+  switch (type)
+  {
+  case WS_EVT_CONNECT:
+    Serial.printf("WebSocket client #%u connected from %s\n", client->id(), client->remoteIP().toString().c_str());
+    break;
+  case WS_EVT_DISCONNECT:
+    Serial.printf("WebSocket client #%u disconnected\n", client->id());
+    break;
+  case WS_EVT_DATA:
+    handleWebSocketMessage(arg, data, len);
+    break;
+  case WS_EVT_PONG:
+    break;
+  case WS_EVT_ERROR:
+    break;
   }
 }
-void setupWifiAP(){
-    ESP_LOGI(TAG, "Setting AP (%s)…", ssid);
-   if (WiFi.softAP(ssid, password))
-   {
-     ESP_LOGI(TAG, "Setup AP %s.", ssid);
-     IPAddress IP = WiFi.softAPIP();
-     ESP_LOGI(TAG, "AP IP %s.", IP.toString());
-     startOTA();
-     LightsController.Init();
-    ws.onEvent(onWsEvent);
-    server.addHandler(&ws);
-    server.begin();
+// thing that require wifi to be up to work
+void postWifiSetup()
+{
+  startOTA();
+  LightsController.Init();
+  ws.onEvent(onWsEvent);
+  server.addHandler(&ws);
+  server.begin();
+}
+void setupWifiAP()
+{
+  ESP_LOGI(TAG, "Setting AP (%s)…", ssid);
+  WiFi.mode(WIFI_AP);
 
-     delay(10000);
-     //WiFi.onEvent(deviceConnected,ARDUINO_EVENT_WIFI_AP_STAIPASSIGNED);
-     //LightsController.DiscoverLights();
+  if (WiFi.softAP(ssid.c_str(), password.c_str()))
+  {
+    ESP_LOGI(TAG, "Setup AP %s.", ssid);
+    IPAddress IP = WiFi.softAPIP();
+    ESP_LOGI(TAG, "AP IP %s.", IP.toString());
 
+    delay(10000);
+    // WiFi.onEvent(deviceConnected,ARDUINO_EVENT_WIFI_AP_STAIPASSIGNED);
+    // LightsController.DiscoverLights();
   }
   else
   {
@@ -513,26 +588,59 @@ void setupWifiAP(){
     ESP.restart();
   }
 }
+
+void connectToWifi()
+{
+  ESP_LOGI(TAG, "Connecting to (%s)…", ssid);
+  WiFi.mode(WIFI_STA);
+  WiFi.begin(ssid.c_str(), password.c_str());
+  uint start = millis();
+  while (WiFi.status() != WL_CONNECTED)
+  {
+    delay(100);
+    if(millis()-start>1000*60*1){
+      ESP_LOGE(TAG, "Failed To Connectto wifi failing back to AP mode!");
+      ssid = "ESP32 RFID";
+      password = "123456789";
+      setupWifiAP();
+      return;
+    }
+  }
+  ESP_LOGI(TAG, "Connected to (%s)…", ssid);
+  delay(10000);
+  //LightsController.DiscoverLights();
+}
+
 void setup()
 {
+  Serial.begin(115200);
 
-  setColor(10,10,10);
+  restoreSettings();
+  // setColor(10,10,10);
   Rfid.Init();
 
-  //startBle();
-  Serial.begin(115200);
-setupWifiAP();
+  if (is_ap)
+  {
+    setupWifiAP();
+  }
+  else
+  {
+    connectToWifi();
+  }
+  postWifiSetup();
+
   Rfid.Enable();
 }
 void loop()
 {
-  delay(50);
+  delay(20);
 
-    handleRfid();
-    ArduinoOTA.handle();
-    if(ledDiscoveryNeeded){
+  handleRfid();
+  ArduinoOTA.handle();
+  if (ledDiscoveryNeeded)
+  {
     LightsController.DiscoverLights();
-    ledDiscoveryNeeded=false;
-    }
-    ws.cleanupClients(3);
+    ledDiscoveryNeeded = false;
+  }
+  ws.cleanupClients(3);
 }
