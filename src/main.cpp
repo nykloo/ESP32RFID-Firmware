@@ -26,7 +26,6 @@ AsyncWebSocket ws("/ws");
 const char *TAG = "MAIN";
 const int lightDiscovreyInterval = 120 * 1000;
 int lastDiscovery = 0;
-volatile bool ledDiscoveryNeeded = false;
 MagicHome LightsController;
 Adafruit_NeoPixel pixels = Adafruit_NeoPixel(LED_COUNT, LED_PIN, NEO_GRB + NEO_KHZ800);
 Rfid Rfid;
@@ -95,7 +94,6 @@ void setColor(byte r, byte g, byte b)
 }
 void deviceConnected(WiFiEvent_t event, WiFiEventInfo_t info)
 {
-  ledDiscoveryNeeded = true;
 }
 void startOTA()
 {
@@ -360,9 +358,9 @@ void writeKyber()
   {
     if (dataCheck.data != writeData || headerCheck.data != 0x1FF)
     {
-      Rfid.EM4xWriteWord(KYBER_DATA_ADDRESS, writeData, 0, 0);
+      Rfid.WriteTag(KYBER_DATA_ADDRESS, writeData);
       delay(100);
-      Rfid.EM4xWriteWord(KYBER_HEADER_ADDRESS, 0x1FF, 0, 0);
+      Rfid.WriteTag(KYBER_HEADER_ADDRESS, 0x1FF);
       delay(100);
       dataCheck = Rfid.ReadTag(KYBER_DATA_ADDRESS);
       headerCheck = Rfid.ReadTag(KYBER_HEADER_ADDRESS);
@@ -406,7 +404,7 @@ void writeRfid()
   {
     if (result.data != writeData)
     {
-      Rfid.EM4xWriteWord(writeAddress, writeData, 0, 0);
+      Rfid.WriteTag(writeAddress, writeData);
       delay(10);
       result = Rfid.ReadTag(writeAddress);
     }
@@ -474,7 +472,6 @@ void handleWebSocketMessage(void *arg, uint8_t *data, size_t len)
 {
   AwsFrameInfo *info = (AwsFrameInfo *)arg;
   ESP_LOGI(TAG, "got ws message");
-
   if (info->final && info->index == 0 && info->len == len && info->opcode == WS_TEXT)
   {
     data[len] = 0;
@@ -564,6 +561,25 @@ void onWsEvent(AsyncWebSocket *server, AsyncWebSocketClient *client, AwsEventTyp
     break;
   }
 }
+
+void discoveryTask(void * parameter){
+  for(;;){ // infinite loop
+    LightsController.DiscoverLights();
+    // Turn the LED on
+    // run every minute
+    vTaskDelay(60000 / portTICK_PERIOD_MS);
+  }
+}
+void startDiscoveryTask(){
+  xTaskCreate(
+    discoveryTask,    // Function that should be called
+    "Discover LEDs",   // Name of the task (for debugging)
+    1000,            // Stack size (bytes)
+    NULL,            // Parameter to pass
+    1,               // Task priority
+    NULL             // Task handle
+  );
+}
 // thing that require wifi to be up to work
 void postWifiSetup()
 {
@@ -644,10 +660,5 @@ void loop()
 
   handleRfid();
   ArduinoOTA.handle();
-  if (ledDiscoveryNeeded)
-  {
-    LightsController.DiscoverLights();
-    ledDiscoveryNeeded = false;
-  }
   ws.cleanupClients(3);
 }

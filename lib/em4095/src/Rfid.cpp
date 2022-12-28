@@ -310,9 +310,6 @@ void Rfid::EM4xLogin(uint32_t pwd)
 
     WaitUS(400);
 }
-void Rfid::WriteTag(uint8_t addr, uint32_t data){
-    EM4xWriteWord(addr,data,0,0);
-}
 
 void Rfid::EM4xWriteWord(uint8_t addr, uint32_t data, uint32_t pwd, uint8_t usepwd)
 {
@@ -381,6 +378,28 @@ void Rfid::EM4xReadWord(uint8_t addr, uint32_t pwd, uint8_t usepwd)
 
     SendForward(len, false);
 }
+RfidResult Rfid::WriteTag(uint8_t address, uint32_t data)
+{
+    // send read
+    EM4xWriteWord(address,data, 0, 0);
+    //loging here may cause issues with timing!!!!!!
+    RecordFromAntenna(127);
+    // attempt to find a response
+    uint32_t outData=data;
+    RfidResult result;
+
+    if (EM4x05testDemodReadData(&outData, false))
+    {
+        //ESP_LOGI(RF_TAG, "READ COMPLETE %x", result);
+        result.data=data;
+        result.error=false;
+        return result;
+    }
+    result.error=true;
+    result.data=0;
+    return result;
+}
+
 RfidResult Rfid::ReadTag(uint8_t address)
 {
     // send read

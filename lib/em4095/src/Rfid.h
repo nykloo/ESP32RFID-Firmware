@@ -18,9 +18,8 @@ public:
     void Disable();
     void Init();
     RfidResult ReadTag(uint8_t address);
-    void WriteTag(uint8_t address, uint32_t data);
+    RfidResult WriteTag(uint8_t address, uint32_t data);
     std::array<uint32_t,15> DumpTag();
-    void EM4xWriteWord(uint8_t addr, uint32_t data, uint32_t pwd, uint8_t usepwd);
 
 private:
     // pin configuration
@@ -46,6 +45,7 @@ private:
     void EM4xLogin(uint32_t pwd);
     void EM4xReadWord(uint8_t addr, uint32_t pwd, uint8_t usepwd);
     void EM4xProtectWord(uint32_t data, uint32_t pwd, uint8_t usepwd);
+    void EM4xWriteWord(uint8_t addr, uint32_t data, uint32_t pwd, uint8_t usepwd);
     uint8_t Prepare_Cmd(uint8_t cmd);
     uint8_t Prepare_Addr(uint8_t addr);
     uint8_t Prepare_Data(uint16_t data_low, uint16_t data_hi);
