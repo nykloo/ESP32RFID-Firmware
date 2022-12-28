@@ -7,13 +7,17 @@
 #define DELAYVAL 384  // 384 //standard delay for manchster decode
 #define TIMEOUT 10000 // standard timeout for manchester decode at  160mhz is 1000000
 #define MAX_DEMOD_BUF_LEN 1024
+struct RfidResult {             // Structure declaration
+  int data;         // Member (int variable)
+  bool error;   // Member (string variable)
+} ;
 class Rfid
 {
 public:
     void Enable();
     void Disable();
     void Init();
-    uint32_t ReadTag(uint8_t address);
+    RfidResult ReadTag(uint8_t address);
     void WriteTag(uint8_t address, uint32_t data);
     std::array<uint32_t,15> DumpTag();
     void EM4xWriteWord(uint8_t addr, uint32_t data, uint32_t pwd, uint8_t usepwd);

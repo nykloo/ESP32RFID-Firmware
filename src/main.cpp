@@ -14,7 +14,8 @@
 #define LED_PIN 14
 #define LED_COUNT 14
 #define DEVICE_NAME "x-wing"
-
+#define KYBER_DATA_ADDRESS 0x06
+#define KYBER_HEADER_ADDRESS 0x05
 bool bleDeviceConnected = false;
 bool bleOldDeviceConnected = false;
 String ssid;     
@@ -42,8 +43,8 @@ enum Mode
 
 volatile Mode mode = read_kyber;
 volatile uint32_t writeData = 0x3E183000;
-volatile uint32_t readAddress = 6;
-volatile uint32_t writeAddress = 6;
+volatile uint32_t readAddress = KYBER_DATA_ADDRESS;
+volatile uint32_t writeAddress = KYBER_DATA_ADDRESS;
 uint rfid_interval_tracker_ms = 0;
 void restoreSettings()
 {
@@ -310,69 +311,73 @@ void showError()
 
 void readRfid()
 {
-  ESP_LOGI(TAG, "read rifd");
+  //ESP_LOGI(TAG, "read rifd");
 
-  uint32_t data = 0;
-  Rfid.ReadTag(readAddress);
-  if (data != 0)
+  RfidResult data =Rfid.ReadTag(readAddress);
+  if (!data.error)
   {
     DynamicJsonDocument doc(1024);
     doc["message_type"] = "response";
     doc["response_of"] = "read";
-    doc["data"] = data;
+    doc["data"] = data.data;
     doc["address"] = readAddress;
     doc["error"] = false;
     String message;
     serializeJson(doc, message);
     ws.textAll(message);
   }
+  delay(250);//read 4 x a second
 }
 void readKyber()
 {
-  uint32_t data = 0;
-  data = Rfid.ReadTag(0x06);
+  RfidResult data;
+  data = Rfid.ReadTag(KYBER_DATA_ADDRESS);
 
-  if (data != 0)
+  if (!data.error)
   {
-    ESP_LOGI(TAG, "read value: %x", data);
+    ESP_LOGI(TAG, "read value: %x", data.data);
 
     DynamicJsonDocument doc(1024);
     doc["message_type"] = "response";
     doc["response_of"] = "read_kyber";
-    doc["data"] = data;
+    doc["data"] = data.data;
+    doc["address"] = KYBER_DATA_ADDRESS;
     doc["error"] = false;
     String message;
     serializeJson(doc, message);
     ws.textAll(message);
     // sendBleResponse(message.c_str());
-    updateLightsById(data);
+    updateLightsById(data.data);
+    delay(1000);
+    setColor(0, 0, 0);
   }
 }
 void writeKyber()
 {
-  uint32_t dataCheck = Rfid.ReadTag(0x06);
-  uint32_t headerCheck = Rfid.ReadTag(0x05);
+  RfidResult dataCheck = Rfid.ReadTag(KYBER_DATA_ADDRESS);
+  RfidResult headerCheck = Rfid.ReadTag(KYBER_HEADER_ADDRESS);
   for (int i = 0; i < 3; i++)
   {
-    if (dataCheck != writeData || headerCheck != 0x1FF)
+    if (dataCheck.data != writeData || headerCheck.data != 0x1FF)
     {
-      Rfid.EM4xWriteWord(0x06, writeData, 0, 0);
-      delay(10);
-      Rfid.EM4xWriteWord(0x05, 0x1FF, 0, 0);
-      delay(10);
-      dataCheck = Rfid.ReadTag(0x06);
-      headerCheck = Rfid.ReadTag(0x05);
+      Rfid.EM4xWriteWord(KYBER_DATA_ADDRESS, writeData, 0, 0);
+      delay(100);
+      Rfid.EM4xWriteWord(KYBER_HEADER_ADDRESS, 0x1FF, 0, 0);
+      delay(100);
+      dataCheck = Rfid.ReadTag(KYBER_DATA_ADDRESS);
+      headerCheck = Rfid.ReadTag(KYBER_HEADER_ADDRESS);
     }
     else
     {
       break;
     }
   }
-  if (dataCheck == writeData && headerCheck == 0x1FF)
+  if (dataCheck.data == writeData && headerCheck.data == 0x1FF)
   {
     DynamicJsonDocument doc(1024);
     doc["message_type"] = "response";
     doc["response_of"] = "write_kyber";
+    doc["address"] = KYBER_DATA_ADDRESS;
     doc["error"] = false;
     String message;
     serializeJson(doc, message);
@@ -386,6 +391,7 @@ void writeKyber()
     DynamicJsonDocument doc(1024);
     doc["message_type"] = "response";
     doc["response_of"] = "write_kyber";
+    doc["address"] = KYBER_DATA_ADDRESS;
     doc["error"] = true;
     String message;
     serializeJson(doc, message);
@@ -395,10 +401,10 @@ void writeKyber()
 }
 void writeRfid()
 {
-  uint32_t result = Rfid.ReadTag(writeAddress);
+  RfidResult result = Rfid.ReadTag(writeAddress);
   for (int i = 0; i < 3; i++)
   {
-    if (result != writeData)
+    if (result.data != writeData)
     {
       Rfid.EM4xWriteWord(writeAddress, writeData, 0, 0);
       delay(10);
@@ -409,7 +415,7 @@ void writeRfid()
       break;
     }
   }
-  if (result == writeData)
+  if (result.data == writeData)
   {
     DynamicJsonDocument doc(1024);
     doc["message_type"] = "response";
@@ -427,11 +433,11 @@ void writeRfid()
     DynamicJsonDocument doc(1024);
     doc["message_type"] = "response";
     doc["response_of"] = "write";
+    doc["address"] = writeAddress;
     doc["error"] = true;
     String message;
     serializeJson(doc, message);
     ws.textAll(message);
-
     // sendBleResponse(message.c_str());
   }
 }
@@ -491,7 +497,8 @@ void handleWebSocketMessage(void *arg, uint8_t *data, size_t len)
     else if (message_type_s == "write")
     {
       writeData = doc["data"];
-      ESP_LOGI(TAG, "Start write rfid");
+      writeAddress = doc["address"];
+      ESP_LOGI(TAG, "Start write rfid address %d  value %d", writeAddress, writeData);
       mode = write_rfid;
     }
     else if (message_type_s == "write_kyber")
@@ -633,7 +640,7 @@ void setup()
 }
 void loop()
 {
-  delay(20);
+  delay(40);
 
   handleRfid();
   ArduinoOTA.handle();

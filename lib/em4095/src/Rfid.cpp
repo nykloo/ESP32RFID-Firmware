@@ -381,27 +381,32 @@ void Rfid::EM4xReadWord(uint8_t addr, uint32_t pwd, uint8_t usepwd)
 
     SendForward(len, false);
 }
-uint32_t Rfid::ReadTag(uint8_t address)
+RfidResult Rfid::ReadTag(uint8_t address)
 {
     // send read
     EM4xReadWord(address, 0, 0);
     //loging here may cause issues with timing!!!!!!
     RecordFromAntenna(127);
     // attempt to find a response
-    uint32_t result;
+    uint32_t data;
+        RfidResult result;
 
-    if (EM4x05testDemodReadData(&result, true))
+    if (EM4x05testDemodReadData(&data, true))
     {
         //ESP_LOGI(RF_TAG, "READ COMPLETE %x", result);
+        result.data=data;
+        result.error=false;
         return result;
     }
-    return 0;
+    result.error=true;
+    result.data=0;
+    return result;
 }
     std::array<uint32_t,15> Rfid::DumpTag(){
         std::array<uint32_t,15> data{0};
         for(int i=0; i<data.size();i++){
             if(i!=2||i!=14||i!=15){
-            data[i]=ReadTag(i);
+            data[i]=ReadTag(i).data;
             }
             WaitUS(400);
         }
