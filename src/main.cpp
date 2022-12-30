@@ -28,7 +28,7 @@ const int lightDiscovreyInterval = 120 * 1000;
 int lastDiscovery = 0;
 MagicHome LightsController;
 Adafruit_NeoPixel pixels = Adafruit_NeoPixel(LED_COUNT, LED_PIN, NEO_GRB + NEO_KHZ800);
-Rfid Rfid;
+Rfid rfid;
 Preferences preferences;
 
 enum Mode
@@ -311,7 +311,7 @@ void readRfid()
 {
   //ESP_LOGI(TAG, "read rifd");
 
-  RfidResult data =Rfid.ReadTag(readAddress);
+  RfidResult data =rfid.ReadTag(readAddress);
   if (!data.error)
   {
     DynamicJsonDocument doc(1024);
@@ -329,7 +329,7 @@ void readRfid()
 void readKyber()
 {
   RfidResult data;
-  data = Rfid.ReadTag(KYBER_DATA_ADDRESS);
+  data = rfid.ReadTag(KYBER_DATA_ADDRESS);
 
   if (!data.error)
   {
@@ -352,18 +352,18 @@ void readKyber()
 }
 void writeKyber()
 {
-  RfidResult dataCheck = Rfid.ReadTag(KYBER_DATA_ADDRESS);
-  RfidResult headerCheck = Rfid.ReadTag(KYBER_HEADER_ADDRESS);
+  RfidResult dataCheck = rfid.ReadTag(KYBER_DATA_ADDRESS);
+  RfidResult headerCheck = rfid.ReadTag(KYBER_HEADER_ADDRESS);
   for (int i = 0; i < 3; i++)
   {
     if (dataCheck.data != writeData || headerCheck.data != 0x1FF)
     {
-      Rfid.WriteTag(KYBER_DATA_ADDRESS, writeData);
+      rfid.WriteTag(KYBER_DATA_ADDRESS, writeData);
       delay(100);
-      Rfid.WriteTag(KYBER_HEADER_ADDRESS, 0x1FF);
+      rfid.WriteTag(KYBER_HEADER_ADDRESS, 0x1FF);
       delay(100);
-      dataCheck = Rfid.ReadTag(KYBER_DATA_ADDRESS);
-      headerCheck = Rfid.ReadTag(KYBER_HEADER_ADDRESS);
+      dataCheck = rfid.ReadTag(KYBER_DATA_ADDRESS);
+      headerCheck = rfid.ReadTag(KYBER_HEADER_ADDRESS);
     }
     else
     {
@@ -399,14 +399,14 @@ void writeKyber()
 }
 void writeRfid()
 {
-  RfidResult result = Rfid.ReadTag(writeAddress);
+  RfidResult result = rfid.ReadTag(writeAddress);
   for (int i = 0; i < 3; i++)
   {
     if (result.data != writeData)
     {
-      Rfid.WriteTag(writeAddress, writeData);
+      rfid.WriteTag(writeAddress, writeData);
       delay(10);
-      result = Rfid.ReadTag(writeAddress);
+      result = rfid.ReadTag(writeAddress);
     }
     else
     {
@@ -441,7 +441,7 @@ void writeRfid()
 }
 void disableRfid()
 {
-  Rfid.Disable();
+  rfid.Disable();
   delay(20);
 }
 
@@ -640,7 +640,7 @@ void setup()
 
   restoreSettings();
   // setColor(10,10,10);
-  Rfid.Init();
+  rfid.Init();
 
   if (is_ap)
   {
@@ -652,7 +652,7 @@ void setup()
   }
   postWifiSetup();
 
-  Rfid.Enable();
+  rfid.Enable();
 }
 void loop()
 {
