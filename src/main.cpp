@@ -18,8 +18,8 @@
 #define KYBER_HEADER_ADDRESS 0x05
 bool bleDeviceConnected = false;
 bool bleOldDeviceConnected = false;
-String ssid;     
-String password; 
+String ssid;
+String password;
 bool is_ap;
 AsyncWebServer server(80);
 AsyncWebSocket ws("/ws");
@@ -52,7 +52,7 @@ void restoreSettings()
     delay(100);
     ESP_LOGI(TAG, "Could not load settings");
   }
-  //preferences.clear();
+  // preferences.clear();
   Serial.print(preferences.isKey("ssid"));
   if (preferences.isKey("ssid"))
   {
@@ -179,108 +179,95 @@ void setWifILights(byte r, byte g, byte b)
 }
 void updateLightsById(uint32_t id)
 {
-
+  // whites
   if (id == 0x18003000) // white ashoka
   {
     setWifILights(255, 255, 255);
     setColor(255, 255, 255);
   }
-  if (id == 14403000) // Chirutt
-  {
-    setWifILights(255, 0, 0);
-    setColor(255, 0, 0);
-  }
-  if (id == 0x00000C02) //?
-  {
-    setWifILights(255, 255, 0);
-    setColor(255, 255, 0);
-  }
-  if (id == 0x7B003000) // temple gaurd
-  {
-    setWifILights(255, 255, 0);
-    setColor(255, 255, 0);
-  }
-  if (id == 0x0C803000) // green
-  {
-    setWifILights(0, 255, 0);
-    setColor(0, 255, 0);
-  }
-  if (id == 0x00000C05) //?
-  {
-    setWifILights(0, 0, 255);
-    setColor(0, 0, 255);
-  }
-  if (id == 0x29803000) //
-  {
-    setWifILights(0, 0, 255);
-    setColor(0, 0, 255);
-  }
-  if (id == 0x6F803000) //
-  {
-    setWifILights(106, 13, 173);
-    setColor(106, 13, 173);
-  }
-  if (id == 0x14403000) //
+  if (id == 0x14403000) // Chirutt
   {
     setWifILights(255, 255, 255);
     setColor(255, 255, 255);
   }
-  if (id == 0x52403000)
+
+  // reds
+  if (id == 0x5E003000) // Vader
   {
     setWifILights(255, 0, 0);
     setColor(255, 0, 0);
   }
-  if (id == 0x31403000)
+  if (id == 0x52403000) // Sidious
   {
     setWifILights(255, 0, 0);
     setColor(255, 0, 0);
   }
-  if (id == 0x77403000)
+  if (id == 0x31403000) // Dooku
+  {
+    setWifILights(255, 0, 0);
+    setColor(255, 0, 0);
+  }
+  if (id == 0x46C03000) // Maul
+  {
+    setWifILights(255, 0, 0);
+    setColor(255, 0, 0);
+  }
+  if (id == 0x3E183000) // Vader 8-Ball
+  {
+    setWifILights(255, 0, 0);
+    setColor(255, 0, 0);
+  }
+  // yellows
+  if (id == 0x7B003000) // Temple Guard
   {
     setWifILights(255, 255, 0);
     setColor(255, 255, 0);
   }
-  if (id == 0x00C03000)
+  if (id == 0x77403000) // Maz
+  {
+    setWifILights(255, 255, 0);
+    setColor(255, 255, 0);
+  }
+  // greens
+  if (id == 0x0C803000) // Qui-Gon
   {
     setWifILights(0, 255, 0);
     setColor(0, 255, 0);
   }
-  if (id == 0x46C03000)
+  if (id == 0x00C03000) // Yoda
   {
-    setWifILights(255, 0, 0);
-    setColor(255, 0, 0);
+    setWifILights(0, 255, 0);
+    setColor(0, 255, 0);
   }
-  if (id == 0x25C03000)
+  if (id == 0x5D183000) // Yoda 8 Ball
+  {
+    setWifILights(0, 255, 0);
+    setColor(0, 255, 0);
+  }
+  // blues
+  if (id == 0x29803000) // Old Ben
   {
     setWifILights(0, 0, 255);
     setColor(0, 0, 255);
   }
-  if (id == 0x63C03000)
+  if (id == 0x25C03000) // Old Luke
   {
-    setWifILights(106, 13, 173);
-    setColor(106, 13, 173);
+    setWifILights(0, 0, 255);
+    setColor(0, 0, 255);
   }
-  if (id == 0x00000C22) //?
+  // purples
+  if (id == 0x6F803000) // mace 1
   {
-    setWifILights(255, 255, 255);
-    setColor(255, 255, 255);
+    setWifILights(102, 51, 153);
+    setColor(102, 51, 153);
   }
-  if (id == 0x00000C30) //?
+  if (id == 0x63C03000) // mace 2
   {
-    setWifILights(255, 255, 255);
-    setColor(255, 255, 255);
+    setWifILights(102, 51, 153);
+    setColor(102, 51, 153);
   }
-  if (id == 0x3E183000)
-  {
-    setWifILights(255, 0, 0);
-    setColor(255, 0, 0);
-  }
-  if (id == 0x5D183000)
-  {
-    setWifILights(0, 255, 0);
-    setColor(0, 255, 0);
-  }
-  if (id == 0x00000C33) //?
+  // black
+  if (id == 0x1B183000) // snoke
   {
     setWifILights(255, 0, 0);
     setColor(255, 0, 0);
@@ -309,9 +296,9 @@ void showError()
 
 void readRfid()
 {
-  //ESP_LOGI(TAG, "read rifd");
+  // ESP_LOGI(TAG, "read rifd");
 
-  RfidResult data =rfid.ReadTag(readAddress);
+  RfidResult data = rfid.ReadTag(readAddress);
   if (!data.error)
   {
     DynamicJsonDocument doc(1024);
@@ -324,7 +311,7 @@ void readRfid()
     serializeJson(doc, message);
     ws.textAll(message);
   }
-  delay(250);//read 4 x a second
+  delay(250); // read 4 x a second
 }
 void readKyber()
 {
@@ -512,8 +499,8 @@ void handleWebSocketMessage(void *arg, uint8_t *data, size_t len)
     else if (message_type_s == "configure_wifi")
     {
       preferences.begin("rfid-reader", false);
-      const char * ssid = doc["ssid"];
-      const char * password = doc["password"];
+      const char *ssid = doc["ssid"];
+      const char *password = doc["password"];
       bool is_ap = doc["is_ap"];
       ESP_LOGI(TAG, "configure wifi for %s is_ap=%d", ssid, is_ap);
       preferences.putString("ssid", ssid);
@@ -562,22 +549,25 @@ void onWsEvent(AsyncWebSocket *server, AsyncWebSocketClient *client, AwsEventTyp
   }
 }
 
-void discoveryTask(void * parameter){
-  for(;;){ // infinite loop
+void discoveryTask(void *parameter)
+{
+  for (;;)
+  { // infinite loop
     LightsController.DiscoverLights();
     // Turn the LED on
     // run every minute
     vTaskDelay(60000 / portTICK_PERIOD_MS);
   }
 }
-void startDiscoveryTask(){
+void startDiscoveryTask()
+{
   xTaskCreate(
-    discoveryTask,    // Function that should be called
-    "Discover LEDs",   // Name of the task (for debugging)
-    1000,            // Stack size (bytes)
-    NULL,            // Parameter to pass
-    1,               // Task priority
-    NULL             // Task handle
+      discoveryTask,   // Function that should be called
+      "Discover LEDs", // Name of the task (for debugging)
+      1000,            // Stack size (bytes)
+      NULL,            // Parameter to pass
+      1,               // Task priority
+      NULL             // Task handle
   );
 }
 // thing that require wifi to be up to work
@@ -621,7 +611,8 @@ void connectToWifi()
   while (WiFi.status() != WL_CONNECTED)
   {
     delay(100);
-    if(millis()-start>1000*60*1){
+    if (millis() - start > 1000 * 60 * 1)
+    {
       ESP_LOGE(TAG, "Failed To Connectto wifi failing back to AP mode!");
       ssid = "ESP32 RFID";
       password = "123456789";
@@ -631,7 +622,7 @@ void connectToWifi()
   }
   ESP_LOGI(TAG, "Connected to (%s)…", ssid);
   delay(10000);
-  //LightsController.DiscoverLights();
+  // LightsController.DiscoverLights();
 }
 
 void setup()
