@@ -42,5 +42,5 @@ jobs:
       uses: actions/upload-artifact@v3.1.0
       with:
         name: esp32-rfid-firmware
-        path: .pio/build/esp32release/
+        path: .pio/build/esp32release/firmware.bin
   
