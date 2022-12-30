@@ -37,7 +37,7 @@ jobs:
         python -m pip install --upgrade pip
         pip install --upgrade platformio
     - name: Run PlatformIO
-      run: pio run
+      run: pio run -e esp32release
     - name: Upload Firmware Artifact
       uses: actions/upload-artifact@v3.1.0
       with:
