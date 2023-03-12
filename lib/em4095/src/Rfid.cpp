@@ -27,6 +27,12 @@ bool g_debugMode = false;
 
 
 
+double Rfid::calcResonantFreq(){
+    unsigned int countStart = clkCount;
+    delay(100);
+    unsigned int elapsedCount= clkCount- countStart;
+    return elapsedCount/100.0;
+}
 //====================================================================
 // prepares command bits
 // see EM4469 spec

@@ -20,6 +20,8 @@ public:
     RfidResult ReadTag(uint8_t address);
     RfidResult WriteTag(uint8_t address, uint32_t data);
     std::array<uint32_t,15> DumpTag();
+    double calcResonantFreq();
+
 
 private:
     // pin configuration
@@ -50,6 +52,7 @@ private:
     uint8_t Prepare_Addr(uint8_t addr);
     uint8_t Prepare_Data(uint16_t data_low, uint16_t data_hi);
     void RecordFromAntenna(uint numberOfBits);
+
 
 };
 

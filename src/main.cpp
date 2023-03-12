@@ -12,7 +12,7 @@
 #include <Rfid.h>
 #include <Adafruit_NeoPixel.h>
 #define LED_PIN 14
-#define LED_COUNT 14
+#define LED_COUNT 16
 #define DEVICE_NAME "x-wing"
 #define KYBER_DATA_ADDRESS 0x06
 #define KYBER_HEADER_ADDRESS 0x05
@@ -37,7 +37,8 @@ enum Mode
   read_kyber,
   write_rfid,
   write_kyber,
-  disable_rfid
+  disable_rfid,
+  measure_freq
 };
 
 volatile Mode mode = read_kyber;
@@ -432,6 +433,10 @@ void disableRfid()
   delay(20);
 }
 
+void measureFreq(){
+  double freq =rfid.calcResonantFreq();
+  ESP_LOGI(TAG,"freq  %f Khz",freq);
+}
 void handleRfid()
 {
 
@@ -451,6 +456,9 @@ void handleRfid()
     break;
   case disable_rfid:
     disableRfid();
+    break;
+  case measure_freq:
+    measureFreq();
     break;
   }
 }
@@ -647,7 +655,7 @@ void setup()
 }
 void loop()
 {
-  delay(40);
+  delay(100);
 
   handleRfid();
   ArduinoOTA.handle();
