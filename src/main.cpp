@@ -175,103 +175,92 @@ void setWifILights(byte r, byte g, byte b)
 {
   for (auto &light : LightsController.DiscoveredLights())
   {
-    setWifILights(r, g, b);
+    light.SetColor(r, g, b);
   }
+}
+void setLights(byte r, byte g, byte b, bool includeWifiLights = false)
+{
+  setColor(r, g, b);
+  if (includeWifiLights)
+    setWifILights(r, g, b);
 }
 void updateLightsById(uint32_t id)
 {
   // whites
   if (id == 0x18003000) // white ashoka
   {
-    setWifILights(255, 255, 255);
-    setColor(255, 255, 255);
+    setLights(255, 255, 255, true);
   }
   if (id == 0x14403000) // Chirutt
   {
-    setWifILights(255, 255, 255);
-    setColor(255, 255, 255);
+    setLights(255, 255, 255, true);
   }
 
   // reds
   if (id == 0x5E003000) // Vader
   {
-    setWifILights(255, 0, 0);
-    setColor(255, 0, 0);
+    setLights(255, 0, 0, true);
   }
   if (id == 0x52403000) // Sidious
   {
-    setWifILights(255, 0, 0);
-    setColor(255, 0, 0);
+    setLights(255, 0, 0, true);
   }
   if (id == 0x31403000) // Dooku
   {
-    setWifILights(255, 0, 0);
-    setColor(255, 0, 0);
+    setLights(255, 0, 0, true);
   }
   if (id == 0x46C03000) // Maul
   {
-    setWifILights(255, 0, 0);
-    setColor(255, 0, 0);
+    setLights(255, 0, 0, true);
   }
   if (id == 0x3E183000) // Vader 8-Ball
   {
-    setWifILights(255, 0, 0);
-    setColor(255, 0, 0);
+    setLights(255, 0, 0, true);
   }
   // yellows
   if (id == 0x7B003000) // Temple Guard
   {
-    setWifILights(255, 255, 0);
-    setColor(255, 255, 0);
+    setLights(255, 255, 0, true);
   }
   if (id == 0x77403000) // Maz
   {
-    setWifILights(255, 255, 0);
-    setColor(255, 255, 0);
+    setLights(255, 255, 0, true);
   }
   // greens
   if (id == 0x0C803000) // Qui-Gon
   {
-    setWifILights(0, 255, 0);
-    setColor(0, 255, 0);
+    setLights(0, 255, 0, true);
   }
-  if (id == 0x00C03000) // Yoda
+  if (id == 0x00C03000, true) // Yoda
   {
-    setWifILights(0, 255, 0);
-    setColor(0, 255, 0);
+    setLights(0, 255, 0, true);
   }
   if (id == 0x5D183000) // Yoda 8 Ball
   {
-    setWifILights(0, 255, 0);
-    setColor(0, 255, 0);
+    setLights(0, 255, 0, true);
   }
   // blues
   if (id == 0x29803000) // Old Ben
   {
-    setWifILights(0, 0, 255);
-    setColor(0, 0, 255);
+    setLights(0, 0, 255, true);
   }
   if (id == 0x25C03000) // Old Luke
   {
-    setWifILights(0, 0, 255);
-    setColor(0, 0, 255);
+    setLights(0, 0, 255, true);
   }
   // purples
   if (id == 0x6F803000) // mace 1
   {
-    setWifILights(102, 51, 153);
-    setColor(102, 51, 153);
+    setLights(102, 51, 153, true);
   }
   if (id == 0x63C03000) // mace 2
   {
-    setWifILights(102, 51, 153);
-    setColor(102, 51, 153);
+    setLights(102, 51, 153, true);
   }
   // black
   if (id == 0x1B183000) // snoke
   {
-    setWifILights(255, 0, 0);
-    setColor(255, 0, 0);
+    setLights(255, 0, 0, true);
   }
 }
 
@@ -433,9 +422,10 @@ void disableRfid()
   delay(20);
 }
 
-void measureFreq(){
-  double freq =rfid.calcResonantFreq();
-  ESP_LOGI(TAG,"freq  %f Khz",freq);
+void measureFreq()
+{
+  double freq = rfid.calcResonantFreq();
+  ESP_LOGI(TAG, "freq  %f Khz", freq);
 }
 void handleRfid()
 {
@@ -528,6 +518,16 @@ void handleWebSocketMessage(void *arg, uint8_t *data, size_t len)
       preferences.end();
       ESP.restart();
     }
+    else if (message_type_s == "set_color")
+    {
+      bool include_wifi_leds = doc["include_wifi_leds"];
+      int r = doc["red"];
+      int g = doc["green"];
+      int b = doc["blue"];
+
+      ESP_LOGI(TAG, "set_color r:%d, g:%d b:%d include wifi lights: %d", r, g, b, include_wifi_leds);
+      setLights(r, g, b, include_wifi_leds);
+    }
     else
     {
       ESP_LOGI(TAG, "unknown message");
@@ -542,17 +542,19 @@ void onWsEvent(AsyncWebSocket *server, AsyncWebSocketClient *client, AwsEventTyp
   switch (type)
   {
   case WS_EVT_CONNECT:
-    Serial.printf("WebSocket client #%u connected from %s\n", client->id(), client->remoteIP().toString().c_str());
+    ESP_LOGI(TAG, "WebSocket client #%u connected from %s", client->id(), client->remoteIP().toString().c_str());
     break;
   case WS_EVT_DISCONNECT:
-    Serial.printf("WebSocket client #%u disconnected\n", client->id());
+    ESP_LOGI(TAG, "WebSocket client #%u disconnected", client->id());
     break;
   case WS_EVT_DATA:
     handleWebSocketMessage(arg, data, len);
     break;
   case WS_EVT_PONG:
+    ESP_LOGD(TAG, "WebSocket client #%u pong", client->id());
     break;
   case WS_EVT_ERROR:
+    ESP_LOGD(TAG, "WebSocket client #%u error", client->id());
     break;
   }
 }
@@ -561,9 +563,8 @@ void discoveryTask(void *parameter)
 {
   for (;;)
   { // infinite loop
-    LightsController.DiscoverLights();
-    // Turn the LED on
     // run every minute
+    LightsController.DiscoverLights();
     vTaskDelay(60000 / portTICK_PERIOD_MS);
   }
 }
@@ -586,6 +587,7 @@ void postWifiSetup()
   ws.onEvent(onWsEvent);
   server.addHandler(&ws);
   server.begin();
+  LightsController.DiscoverLights();
 }
 void setupWifiAP()
 {
@@ -621,7 +623,7 @@ void connectToWifi()
     delay(100);
     if (millis() - start > 1000 * 60 * 1)
     {
-      ESP_LOGE(TAG, "Failed To Connectto wifi failing back to AP mode!");
+      ESP_LOGE(TAG, "Failed To Connect to wifi failing back to AP mode!");
       ssid = "ESP32 RFID";
       password = "123456789";
       setupWifiAP();
@@ -630,7 +632,6 @@ void connectToWifi()
   }
   ESP_LOGI(TAG, "Connected to (%s)…", ssid);
   delay(10000);
-  // LightsController.DiscoverLights();
 }
 
 void setup()
@@ -656,7 +657,6 @@ void setup()
 void loop()
 {
   delay(100);
-
   handleRfid();
   ArduinoOTA.handle();
   ws.cleanupClients(3);
