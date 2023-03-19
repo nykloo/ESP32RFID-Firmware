@@ -421,12 +421,29 @@ void disableRfid()
   rfid.Disable();
   delay(20);
 }
+void getInfo()
+{
 
+    ESP_LOGI(TAG, "Sending device info");
+
+    DynamicJsonDocument doc(1024);
+    doc["message_type"] = "response";
+    doc["response_of"] = "get_info";
+    doc["name"] = "ESP32 RFID";
+    doc["address"] = WiFi.localIP();
+    doc["id"] = WiFi.macAddress();
+    doc["version"] = AUTO_VERSION;
+    String message;
+    serializeJson(doc, message);
+    ws.textAll(message);
+    // sendBleResponse(message.c_str());
+}
 void measureFreq()
 {
   double freq = rfid.calcResonantFreq();
   ESP_LOGI(TAG, "freq  %f Khz", freq);
 }
+
 void handleRfid()
 {
 
@@ -520,16 +537,24 @@ void handleWebSocketMessage(void *arg, uint8_t *data, size_t len)
     }
     else if (message_type_s == "set_color")
     {
+
       bool include_wifi_leds = doc["include_wifi_leds"];
       int r = doc["red"];
       int g = doc["green"];
       int b = doc["blue"];
 
-      ESP_LOGI(TAG, "set_color r:%d, g:%d b:%d include wifi lights: %d", r, g, b, include_wifi_leds);
       setLights(r, g, b, include_wifi_leds);
+      ESP_LOGI(TAG, "set_color r:%d, g:%d b:%d include wifi lights: %d", r, g, b, include_wifi_leds);
+    }
+    else if (message_type_s == "get_info")
+    {
+
+      getInfo();
     }
     else
     {
+      setLights(50, 50, 50);
+
       ESP_LOGI(TAG, "unknown message");
       String message;
       serializeJson(doc, message);
