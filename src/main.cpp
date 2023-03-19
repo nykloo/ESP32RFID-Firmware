@@ -424,19 +424,19 @@ void disableRfid()
 void getInfo()
 {
 
-    ESP_LOGI(TAG, "Sending device info");
+  ESP_LOGI(TAG, "Sending device info");
 
-    DynamicJsonDocument doc(1024);
-    doc["message_type"] = "response";
-    doc["response_of"] = "get_info";
-    doc["name"] = "ESP32 RFID";
-    doc["address"] = WiFi.localIP();
-    doc["id"] = WiFi.macAddress();
-    doc["version"] = AUTO_VERSION;
-    String message;
-    serializeJson(doc, message);
-    ws.textAll(message);
-    // sendBleResponse(message.c_str());
+  DynamicJsonDocument doc(1024);
+  doc["message_type"] = "response";
+  doc["response_of"] = "get_info";
+  doc["name"] = "ESP32 RFID";
+  doc["address"] = WiFi.localIP();
+  doc["id"] = WiFi.macAddress();
+  doc["version"] = AUTO_VERSION;
+  String message;
+  serializeJson(doc, message);
+  ws.textAll(message);
+  // sendBleResponse(message.c_str());
 }
 void measureFreq()
 {
