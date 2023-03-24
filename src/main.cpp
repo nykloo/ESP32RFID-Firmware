@@ -9,7 +9,7 @@
 #include <ArduinoJson.h>
 #include <Preferences.h>
 #include <MagicHome.h>
-#include <Rfid.h>
+#include <Em4095.h>
 #include <Adafruit_NeoPixel.h>
 #define LED_PIN 14
 #define LED_COUNT 16
@@ -28,7 +28,7 @@ const int lightDiscovreyInterval = 120 * 1000;
 int lastDiscovery = 0;
 MagicHome LightsController;
 Adafruit_NeoPixel pixels = Adafruit_NeoPixel(LED_COUNT, LED_PIN, NEO_GRB + NEO_KHZ800);
-Rfid rfid;
+Em4095 rfid(4, 27, 16, 15);
 Preferences preferences;
 
 enum Mode
